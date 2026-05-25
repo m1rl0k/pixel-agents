@@ -1248,11 +1248,24 @@ export class OrchestratorManager {
 
       if (status.trim().length > 0) {
         // 3. Commit with custom author
-        execFileSync('git', ['commit', '-m', commitMsg, `--author=${label} <${email}>`], {
-          cwd: this.cwd,
-          stdio: 'ignore',
-          timeout: 5000,
-        });
+        execFileSync(
+          'git',
+          [
+            '-c',
+            'user.name=Pixel Agents Swarm',
+            '-c',
+            'user.email=swarm@pixel-agents.local',
+            'commit',
+            '-m',
+            commitMsg,
+            `--author=${label} <${email}>`,
+          ],
+          {
+            cwd: this.cwd,
+            stdio: 'ignore',
+            timeout: 5000,
+          },
+        );
         this.facilityChat(
           workerId,
           `Git Commit: Successfully committed code as ${label}!`,
