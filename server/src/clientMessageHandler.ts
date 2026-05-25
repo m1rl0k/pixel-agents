@@ -1,4 +1,6 @@
 import * as crypto from 'crypto';
+import * as os from 'os';
+import * as path from 'path';
 
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -8,10 +10,12 @@ import {
   getProviderKeysPresence,
   isAllowedProviderKey,
   readConfig,
+  writeAutonomyLevel,
   writeConfig,
   writeProviderKey,
 } from './configPersistence.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
+import type { AutonomyLevel } from './omc/permissionPolicy.js';
 import type { OrchestratorManager } from './orchestratorManager.js';
 import { claudeProvider } from './providers/index.js';
 import type { ProviderRegistry } from './providers/registry.js';
@@ -49,6 +53,8 @@ export interface ClientMessageContext {
   orchestratorRef?: OrchestratorRef;
   /** Apply a world-edit op to the current layout and broadcast layoutLoaded to all clients. */
   onWorldEdit?: (op: string, args: unknown[]) => void;
+  /** Mutable ref keeping the live autonomy level in sync across all permission gates. */
+  autonomyLevelRef?: { current: AutonomyLevel };
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -58,6 +64,25 @@ const KEY_ALWAYS_SHOW_LABELS = 'pixel-agents.alwaysShowLabels';
 const KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
 const KEY_HOOKS_ENABLED = 'pixel-agents.hooksEnabled';
 const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
+
+function isAutonomyLevel(value: unknown): value is AutonomyLevel {
+  return value === 'auto' || value === 'safe' || value === 'manual';
+}
+
+/**
+ * Returns true if the given cwd is within an allowed root directory.
+ * Prevents path-traversal attacks where a client sends an arbitrary cwd.
+ */
+export function isAllowedCwd(cwd: string): boolean {
+  const resolved = path.resolve(cwd);
+  const allowedRoots = [
+    path.resolve(process.cwd()),
+    path.join(os.homedir(), '.pixel-agents'),
+  ];
+  return allowedRoots.some(
+    (root) => resolved === root || resolved.startsWith(root + path.sep),
+  );
+}
 
 /**
  * Handle incoming ClientMessage from a WebSocket client.
@@ -124,6 +149,17 @@ export function handleClientMessage(
       adapter?.setSetting(KEY_HOOKS_INFO_SHOWN, true);
       break;
 
+    case 'setAutonomyLevel': {
+      const level = msg.level;
+      if (!isAutonomyLevel(level)) break;
+      writeAutonomyLevel(level);
+      if (ctx.autonomyLevelRef) {
+        ctx.autonomyLevelRef.current = level;
+      }
+      send({ type: 'autonomyLevelSet', level });
+      break;
+    }
+
     case 'addExternalAssetDirectory': {
       const newPath = msg.path as string | undefined;
       if (!newPath) break;
@@ -165,19 +201,22 @@ export function handleClientMessage(
     case 'spawnAgent': {
       if (!ctx.spawnManager) break;
       const providerId = typeof msg.providerId === 'string' ? msg.providerId : 'codex';
-      const cwd = typeof msg.cwd === 'string' && msg.cwd ? msg.cwd : process.cwd();
+      // Clamp cwd to allowed roots — never trust client-supplied path directly.
+      const rawCwd = typeof msg.cwd === 'string' && msg.cwd ? msg.cwd : process.cwd();
+      const cwd = isAllowedCwd(rawCwd) ? rawCwd : process.cwd();
       // Sandbox tier chosen server-side (never trust a client-sent policy object).
       const sandbox: SandboxPolicy | null =
         msg.sandboxTier === SandboxTier.CONTAINER ? { ...DEFAULT_CONTAINER_POLICY } : null;
       const sessionId =
         typeof msg.sessionId === 'string' && msg.sessionId ? msg.sessionId : crypto.randomUUID();
+      // bypassPermissions is a server-only policy — never granted from client input.
       try {
         ctx.spawnManager.spawn({
           providerId,
           sessionId,
           cwd,
           sandbox,
-          bypassPermissions: msg.bypassPermissions === true,
+          bypassPermissions: false,
           socialRoam: true,
         });
       } catch (err) {
@@ -236,6 +275,25 @@ export function handleClientMessage(
       const op = typeof msg.op === 'string' ? msg.op : '';
       const args = Array.isArray(msg.args) ? (msg.args as unknown[]) : [];
       if (op) ctx.onWorldEdit?.(op, args);
+      break;
+    }
+
+    case 'facilityCommand': {
+      const orchestrator = ctx.orchestratorRef?.current ?? null;
+      if (!orchestrator) break;
+      const action = msg.action;
+      if (action === 'pause') {
+        orchestrator.pause();
+      } else if (action === 'resume') {
+        orchestrator.resume();
+      } else if (action === 'buildRoom') {
+        orchestrator.buildNextRoom();
+      } else if (action === 'setTempo') {
+        const tempo = msg.tempo;
+        if (tempo === 'slow' || tempo === 'normal' || tempo === 'fast') {
+          orchestrator.setTempo(tempo);
+        }
+      }
       break;
     }
 
@@ -342,6 +400,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     hooksInfoShown: adapter?.getSetting(KEY_HOOKS_INFO_SHOWN, false) ?? false,
     externalAssetDirectories: cfg.externalAssetDirectories,
     providerKeysSet: getProviderKeysPresence(),
+    autonomyLevel: cfg.autonomyLevel,
   });
 
   // Sync runtime refs with the persisted settings so scanners behave correctly

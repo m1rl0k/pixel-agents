@@ -231,7 +231,7 @@ process.stdin.resume();
     );
   });
 
-  it('throws for a non-stream provider id and for unknown ids', () => {
+  it('returns -1 for an unknown provider id (no demo fallback in registry)', () => {
     const registry = new ProviderRegistry();
     registry.register(makeFakeProvider());
     manager = new SpawnedAgentManager({
@@ -240,14 +240,13 @@ process.stdin.resume();
       allocateId: () => 1,
     });
 
-    expect(() =>
-      manager.spawn({
-        providerId: 'does-not-exist',
-        sessionId: 's',
-        cwd: process.cwd(),
-        sandbox: null,
-      }),
-    ).toThrow(/unknown provider/);
+    const result = manager.spawn({
+      providerId: 'does-not-exist',
+      sessionId: 's',
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+    expect(result).toBe(-1);
   });
 
   it('runs demo provider multi-step tool chain with matching toolEnd ids', async () => {

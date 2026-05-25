@@ -13,6 +13,7 @@ import {
 import type { ProviderInfo, SandboxTier } from '../interaction/messages.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import type { ToolActivity } from '../office/types.js';
+import { resolveProviderDisplayName } from '../providerDisplay.js';
 
 export interface AgentRosterPanelProps {
   agents: number[];
@@ -86,10 +87,7 @@ export function AgentRosterPanel({
             const ch = officeState.characters.get(id);
             const name = ch?.folderName ?? `Worker #${id}`;
             const providerId = agentProviders[id];
-            const providerEntry = providerId
-              ? providers.find((p) => p.id === providerId)
-              : undefined;
-            const providerDisplay = providerEntry ? providerEntry.displayName : providerId;
+            const providerDisplay = resolveProviderDisplayName(providerId, providers);
             const tier = sandboxTiers[id];
             const tierLbl = tierLabel(tier);
             const status = agentStatuses[id] ?? 'idle';

@@ -30,7 +30,7 @@
     "test:webview": "cd webview-ui && npm test",
     "test:server": "cd server && npm test",
     "test": "npm run test:webview && npm run test:server",
-    "facility": "PIXEL_AGENTS_FRESH_FACILITY=1 PIXEL_AGENTS_FAST_FACILITY=1 PIXEL_AGENTS_ORCHESTRATOR=1 node dist/cli.js --workers 4",
+    "facility": "PIXEL_AGENTS_FRESH_FACILITY=1 PIXEL_AGENTS_FAST_FACILITY=1 PIXEL_AGENTS_ORCHESTRATOR=1 node dist/cli.js --workers 20",
     "knip": "knip"
   },
   "devDependencies": {

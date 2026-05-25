@@ -12,9 +12,11 @@ import { Button } from './ui/Button.js';
 interface ZoomControlsProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  /** Top offset in px when another bar is rendered above (e.g. CommandBar). */
+  topOffset?: number;
 }
 
-export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
+export function ZoomControls({ zoom, onZoomChange, topOffset = 8 }: ZoomControlsProps) {
   const [showLevel, setShowLevel] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,8 +70,8 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
         </div>
       )}
 
-      {/* Vertically stacked round buttons — top-left */}
-      <div className="absolute top-8 left-8 z-10 flex flex-col gap-4">
+      {/* Vertically stacked round buttons — top-left, shifts down when CommandBar is present */}
+      <div className="absolute left-8 z-10 flex flex-col gap-4" style={{ top: topOffset }}>
         <Button
           size="icon_lg"
           onClick={() => onZoomChange(zoom + 1)}

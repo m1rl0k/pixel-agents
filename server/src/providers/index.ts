@@ -22,4 +22,11 @@ export type { ProviderCapability } from './registry.js';
 export { ProviderRegistry } from './registry.js';
 export { cursorFileProvider, cursorProvider } from './stream/cursor/cursor.js';
 export { kimiProvider } from './stream/kimi/kimi.js';
+export {
+  nvidiaNimDeepSeekProvider,
+  nvidiaNimGlmProvider,
+  nvidiaNimKimiProvider,
+  nvidiaNimMinimaxProvider,
+  nvidiaNimProviders,
+} from './stream/nvidia/nim.js';
 export { zaiGlmProvider } from './stream/zai/zai.js';

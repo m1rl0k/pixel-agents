@@ -3,6 +3,10 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CONFIG_FILE_NAME, LAYOUT_FILE_DIR } from './constants.js';
+import {
+  type AutonomyLevel,
+  DEFAULT_AUTONOMY_LEVEL,
+} from './omc/permissionPolicy.js';
 
 export interface AdapterSettings {
   soundEnabled: boolean;
@@ -30,12 +34,16 @@ export interface PixelAgentsConfig {
   externalAssetDirectories: string[];
   /** Encrypted-at-rest provider API keys. Never sent to the client as values. */
   providerKeys?: Record<string, string>;
+  /** Permission autonomy level — controls how aggressively to auto-approve tool calls. */
+  autonomyLevel?: AutonomyLevel;
 }
 
 // ── Provider key allow-list ──────────────────────────────────────────────────
 
 export const ALLOWED_PROVIDER_KEYS = [
+  'KIMI_CODING_API_KEY',
   'KIMI_API_KEY',
+  'NVIDIA_NIM_API_KEY',
   'ZAI_GLM_5_CODING_API_KEY',
   'ZAI_GLM_5_1_CODING_API_KEY',
 ] as const;
@@ -104,6 +112,12 @@ function mergeLegacySettings(parsed: LegacyPixelAgentsConfig): AdapterSettings {
   return merged;
 }
 
+function parseAutonomyLevel(raw: unknown): AutonomyLevel {
+  return raw === 'auto' || raw === 'safe' || raw === 'manual'
+    ? raw
+    : DEFAULT_AUTONOMY_LEVEL;
+}
+
 export function readConfig(): PixelAgentsConfig {
   const filePath = getConfigFilePath();
   try {
@@ -121,6 +135,15 @@ export function readConfig(): PixelAgentsConfig {
         externalAssetDirectories: Array.isArray(parsed.externalAssetDirectories)
           ? parsed.externalAssetDirectories.filter((d): d is string => typeof d === 'string')
           : [],
+        providerKeys:
+          parsed.providerKeys && typeof parsed.providerKeys === 'object'
+            ? Object.fromEntries(
+                Object.entries(parsed.providerKeys).filter(
+                  ([k, v]) => isAllowedProviderKey(k) && typeof v === 'string',
+                ),
+              )
+            : undefined,
+        autonomyLevel: parseAutonomyLevel(parsed.autonomyLevel),
       };
     }
     return {
@@ -128,6 +151,15 @@ export function readConfig(): PixelAgentsConfig {
       externalAssetDirectories: Array.isArray(parsed.externalAssetDirectories)
         ? parsed.externalAssetDirectories.filter((d): d is string => typeof d === 'string')
         : [],
+      providerKeys:
+        parsed.providerKeys && typeof parsed.providerKeys === 'object'
+          ? Object.fromEntries(
+              Object.entries(parsed.providerKeys).filter(
+                ([k, v]) => isAllowedProviderKey(k) && typeof v === 'string',
+              ),
+            )
+          : undefined,
+      autonomyLevel: parseAutonomyLevel(parsed.autonomyLevel),
     };
   } catch (err) {
     console.error('[Pixel Agents] Failed to read config file:', err);
@@ -172,6 +204,18 @@ export function applyProviderKeysToEnv(): void {
       process.env[k] = val;
     }
   }
+}
+
+/** Read the persisted autonomy level, defaulting to DEFAULT_AUTONOMY_LEVEL. */
+export function readAutonomyLevel(): AutonomyLevel {
+  return readConfig().autonomyLevel ?? DEFAULT_AUTONOMY_LEVEL;
+}
+
+/** Persist a new autonomy level to config.json. */
+export function writeAutonomyLevel(level: AutonomyLevel): void {
+  const cfg = readConfig();
+  cfg.autonomyLevel = level;
+  writeConfig(cfg);
 }
 
 export function writeConfig(config: PixelAgentsConfig): void {

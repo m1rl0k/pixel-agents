@@ -84,6 +84,8 @@ export const BUTTON_ICON_COLOR = '#fff';
 export const CANVAS_FALLBACK_TILE_COLOR = '#444';
 export const CANVAS_ERROR_TILE_COLOR = '#FF00FF';
 export const WALL_COLOR = '#3A3A5C';
+export const AMBIENT_OVERLAY_CLEAR = 'rgba(0,0,0,0)';
+export const ambientOverlayEdge = (alpha: string): string => `rgba(8,4,24,${alpha})`;
 
 // ── Camera ───────────────────────────────────────────────────
 export const CAMERA_FOLLOW_LERP = 0.1;
@@ -232,6 +234,16 @@ export const SWARM_QUICK_SHIP = 'Execute the smallest useful next step and repor
 export const FACILITY_PROGRESS_TRACK_BG = 'rgba(10, 10, 20, 0.85)';
 export const FACILITY_PROGRESS_FILL = '#7c6cff';
 
+
+// ── Mission Board Panel ───────────────────────────────────────
+export const MISSIONS_LABEL = 'Missions';
+export const MISSIONS_TITLE = 'View live mission board and task tree';
+export const MISSIONS_HEADER = 'Mission Board';
+export const MISSIONS_TASKS_SUFFIX = 'tasks';
+export const MISSION_BOARD_WIDTH_PX = 300;
+export const MISSION_BOARD_MAX_HEIGHT_PX = 420;
+export const MISSION_BOARD_BOTTOM_PX = 68;
+export const MISSION_BOARD_LEFT_PX = 310;
 // ── Agent Roster Panel ────────────────────────────────────────
 export const ROSTER_LABEL = 'Roster';
 export const ROSTER_TITLE = 'View live agents, providers, and sandbox tiers';

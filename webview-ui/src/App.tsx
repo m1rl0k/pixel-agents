@@ -3,12 +3,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toMajorMinor } from './changelogData.js';
 import { AgentPanel } from './components/AgentPanel.js';
 import { AgentRosterPanel } from './components/AgentRosterPanel.js';
+import { ApprovalsBox } from './components/ApprovalsBox.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
+import { CommandBar } from './components/CommandBar.js';
 import { DebugView } from './components/DebugView.js';
 import { EditActionBar } from './components/EditActionBar.js';
 import { FacilityWatchFeed } from './components/FacilityWatchFeed.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
+import { MissionBoard } from './components/MissionBoard.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { SpawnErrorToast } from './components/SpawnErrorToast.js';
 import { SwarmCommandBar } from './components/SwarmCommandBar.js';
@@ -87,6 +90,9 @@ function App() {
     facilityFeed,
     providerKeysSet,
     permissionRequestByAgent,
+    pendingApprovals,
+    taskTree,
+    autonomyLevel,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   const [facilityWatchMode, setFacilityWatchMode] = useState(true);
@@ -125,6 +131,7 @@ function App() {
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRosterOpen, setIsRosterOpen] = useState(false);
+  const [isMissionsOpen, setIsMissionsOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -158,6 +165,14 @@ function App() {
   const handleSelectAgent = useCallback((id: number) => {
     transport.send({ type: 'focusAgent', id });
   }, []);
+
+  const getAgentName = useCallback(
+    (id: number): string => {
+      const ch = getOfficeState().characters.get(id);
+      return ch?.folderName ?? `Worker #${id}`;
+    },
+    [],
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -219,6 +234,10 @@ function App() {
 
   const handleProviderKeySave = useCallback((name: string, value: string) => {
     transport.send({ type: 'setProviderKey', name, value });
+  }, []);
+
+  const handleSetAutonomyLevel = useCallback((level: 'auto' | 'safe' | 'manual') => {
+    transport.send({ type: 'setAutonomyLevel', level });
   }, []);
 
   const handleClosePanel = useCallback(() => {
@@ -296,6 +315,13 @@ function App() {
       {!isDebugMode ? (
         <>
           {facilityProgress && (
+            <CommandBar
+              facilityProgress={facilityProgress}
+              agentCount={agents.length}
+              providers={providers}
+            />
+          )}
+          {facilityProgress && (
             <FacilityWatchFeed
               items={facilityFeed}
               missionBoard={facilityProgress.missionBoard}
@@ -309,7 +335,11 @@ function App() {
               onToggleWatch={handleToggleFacilityWatch}
             />
           )}
-          <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} />
+          <ZoomControls
+            zoom={editor.zoom}
+            onZoomChange={editor.handleZoomChange}
+            topOffset={facilityProgress ? 56 : 8}
+          />
 
           {/* Vignette overlay */}
           <div
@@ -458,6 +488,22 @@ function App() {
         </div>
       </Modal>
 
+      {isMissionsOpen && (
+        <MissionBoard
+          items={taskTree}
+          onClose={() => setIsMissionsOpen(false)}
+        />
+      )}
+
+      <ApprovalsBox
+        pendingApprovals={pendingApprovals}
+        agentTools={agentTools}
+        getAgentName={getAgentName}
+        onReply={(requestId, approved) =>
+          transport.send({ type: 'permissionReply', requestId, approved })
+        }
+      />
+
       {isRosterOpen && (
         <AgentRosterPanel
           agents={agents}
@@ -482,6 +528,8 @@ function App() {
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
         isRosterOpen={isRosterOpen}
         onToggleRoster={() => setIsRosterOpen((v) => !v)}
+        isMissionsOpen={isMissionsOpen}
+        onToggleMissions={() => setIsMissionsOpen((v) => !v)}
         agentCount={agents.length}
         providers={providers}
       />
@@ -521,6 +569,8 @@ function App() {
         }}
         providerKeysSet={providerKeysSet}
         onProviderKeySave={handleProviderKeySave}
+        autonomyLevel={autonomyLevel}
+        onSetAutonomyLevel={handleSetAutonomyLevel}
       />
 
       {showMigrationNotice && (

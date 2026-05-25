@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ROSTER_LABEL, ROSTER_TITLE } from '../constants.js';
+import { MISSIONS_LABEL, MISSIONS_TITLE, ROSTER_LABEL, ROSTER_TITLE } from '../constants.js';
 import type { ProviderInfo, SandboxTier } from '../interaction/messages.js';
 import { sendClient } from '../interaction/messages.js';
 import { SpawnMenu } from './SpawnMenu.js';
@@ -13,6 +13,8 @@ interface BottomToolbarProps {
   onToggleSettings: () => void;
   isRosterOpen: boolean;
   onToggleRoster: () => void;
+  isMissionsOpen: boolean;
+  onToggleMissions: () => void;
   agentCount: number;
   providers: ProviderInfo[];
 }
@@ -24,6 +26,8 @@ export function BottomToolbar({
   onToggleSettings,
   isRosterOpen,
   onToggleRoster,
+  isMissionsOpen,
+  onToggleMissions,
   agentCount,
   providers,
 }: BottomToolbarProps) {
@@ -80,6 +84,13 @@ export function BottomToolbar({
           )}
         </Button>
       </div>
+      <Button
+        variant={isMissionsOpen ? 'active' : 'default'}
+        onClick={onToggleMissions}
+        title={MISSIONS_TITLE}
+      >
+        {MISSIONS_LABEL}
+      </Button>
       {providers.length > 0 && (
         <div ref={spawnMenuRef}>
           <SpawnMenu

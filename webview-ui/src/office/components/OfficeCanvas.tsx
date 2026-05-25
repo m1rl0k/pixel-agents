@@ -12,6 +12,7 @@ import { unlockAudio } from '../../notificationSound.js';
 import { transport } from '../../transport/index.js';
 import { canPlaceFurniture, getWallPlacementRow } from '../editor/editorActions.js';
 import type { EditorState } from '../editor/editorState.js';
+import { renderAmbientOverlay } from '../engine/ambientFx.js';
 import { startGameLoop } from '../engine/gameLoop.js';
 import type { OfficeState } from '../engine/officeState.js';
 import type {
@@ -297,6 +298,9 @@ export function OfficeCanvas({
           officeState.newFurnitureTimers,
         );
         offsetRef.current = { x: offsetX, y: offsetY };
+
+        // Subtle ambient vignette — applied after scene, before HUD chrome
+        renderAmbientOverlay(ctx, w, h);
 
         // Store delete/rotate button bounds for hit-testing
         deleteButtonBoundsRef.current = editorRender?.deleteButtonBounds ?? null;

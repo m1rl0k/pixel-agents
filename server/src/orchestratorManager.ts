@@ -14,24 +14,37 @@
 import type { AgentEvent } from '../../core/src/provider.js';
 import { AgentMemoryStore } from './agentMemoryStore.js';
 import {
-  CLAUDE_STREAM_PROVIDER_ID,
-  claudeStreamWorkersEnabled,
   dispatchIntervalMs,
+  type FacilityTempo,
   HOME_BUILD_STEP_COUNT,
   homeBuildIntervalMs,
-  KIMI_WORKER_PROVIDER_ID,
   RELAY_MIN_MS,
   roomBuildIntervalMs,
+  selfMaintainEnabled,
+  setFacilityTempo,
   WORKER_PROVIDER_ID,
   WORKER_ROOM_COUNT,
-  ZAI_GLM5_WORKER_PROVIDER_ID,
-  ZAI_WORKER_PROVIDER_ID,
 } from './facilityConstants.js';
+import {
+  buildFacilityProviderStartupReport,
+  buildFacilityWorkerRoster,
+  type FacilityProviderLane,
+  formatFacilityStartupMessage,
+  pickOrchestratorProvider,
+  pickWorkerProviderForRoom,
+} from './facilityProviders.js';
 import { FacilityStateStore } from './facilityStateStore.js';
 import { getHomeBuildStep } from './homeBuildPlan.js';
 import { FacilityTaskTree, type MissionBoardItem } from './omc/facilityTaskTree.js';
 import { MAX_STALL_RETRIES, shouldRetryStall } from './omc/stallDetection.js';
 import { ensureWorkerRoomDir, sandboxPolicyForRoom } from './roomSandbox.js';
+import {
+  generateSelfMaintenanceTasks,
+  SELF_MAINTAIN_FAIL_MARKER,
+  SELF_MAINTAIN_OK_MARKER,
+  SELF_MAINTAIN_PREFIX,
+  type SelfMaintenanceTask,
+} from './selfMaintenanceTasks.js';
 import { pickSpacetimeTask } from './spacetimeTasks.js';
 import type { SpawnedAgentManager } from './spawnedAgentManager.js';
 import type { PlacedFurniture, WorkerFacilityLayout } from './workerFacilityLayout.js';
@@ -51,29 +64,6 @@ function freshFacility(): boolean {
   return v !== undefined && v !== '' && v !== '0' && v !== 'false';
 }
 
-function configuredEnv(name: string): boolean {
-  const v = process.env[name];
-  return v !== undefined && v !== '' && v !== '0' && v !== 'false';
-}
-
-function configuredZaiWorkerSlots(): number {
-  const values = [
-    process.env.ZAI_GLM_5_1_CODING_API_KEY_1,
-    process.env.ZAI_GLM_5_1_CODING_API_KEY_2,
-    process.env.ZAI_GLM_5_1_CODING_API_KEY,
-  ].filter((value): value is string => Boolean(value));
-  return Math.min(2, new Set(values).size);
-}
-
-function configuredZai5WorkerSlots(): number {
-  const values = [
-    process.env.ZAI_GLM_5_CODING_API_KEY,
-    process.env.ZAI_GLM_5_CODING_API_KEY_1,
-    process.env.ZAI_GLM_5_CODING_API_KEY_2,
-  ].filter((value): value is string => Boolean(value));
-  return Math.min(2, new Set(values).size);
-}
-
 export interface OrchestratorDeps {
   manager: SpawnedAgentManager;
   emit: (msg: Record<string, unknown>) => void;
@@ -86,11 +76,7 @@ export interface OrchestratorStartOptions {
   workerCount?: number;
 }
 
-interface WorkerProviderAssignment {
-  providerId: string;
-  laneLabel: string;
-  capability: string;
-}
+type WorkerProviderAssignment = FacilityProviderLane;
 
 export class OrchestratorManager {
   private readonly manager: SpawnedAgentManager;
@@ -117,20 +103,49 @@ export class OrchestratorManager {
   private readonly workerAssistantTurnText = new Map<number, string>();
   private readonly workerActiveTaskId = new Map<number, string>();
   private targetRooms = WORKER_ROOM_COUNT;
+  private workerRoster: FacilityProviderLane[] = [];
   private cwd = process.cwd();
   private roomsComplete = false;
   private homeComplete = false;
   /** Pending staggered-build timeouts from scheduleStaggeredBuildOps. */
   private readonly workerBuildTimeouts: ReturnType<typeof setTimeout>[] = [];
+  /** Per-worker wall-clock stall timers (30 s). */
+  private readonly workerStallTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** Relay chain depth per worker — reset on new dispatch. */
+  private readonly workerRelayDepth = new Map<number, number>();
+  /** Outbound relay count in current dispatch cycle — reset in dispatch(). */
+  private relayChildCountThisCycle = 0;
 
+  private readonly providerCooldowns = new Map<string, number>();
+  private readonly workerRoomFailAttempts = new Map<number, number>();
+  /** Queue of self-maintenance tasks waiting to be dispatched. */
+  private selfMaintainQueue: SelfMaintenanceTask[] = [];
+  /** How many times dispatchToWorker() has been called — schedules self-maintenance slots. */
+  private selfMaintainDispatchCount = 0;
   private static readonly SHARED_GOAL_BACKLOG_LIMIT = 5;
+  /** Dispatch every Nth cycle to a self-maintenance task instead of a spacetime task. */
+  private static readonly SELF_MAINTAIN_EVERY_N = 3;
   private static readonly RELAY_RESPONSE_SUPPRESS_MS = RELAY_MIN_MS * 2;
+  /** Wall-clock stall window: no toolStart within this window triggers re-prompt. */
+  private static readonly STALL_DETECT_MS = 30_000;
+  /** Base backoff for text-only stall retries (doubles each attempt). */
+  private static readonly STALL_BACKOFF_BASE_MS = 2_000;
+  /** Max relay chain depth to prevent cascading worker→worker storms. */
+  private static readonly MAX_RELAY_DEPTH = 3;
+  /** Max relay fanout per dispatch cycle. */
+  private static readonly MAX_RELAY_CHILDREN = 4;
+
+  private static readonly MAX_FAILOVER_ATTEMPTS = 2;
+
+  private static readonly PROVIDER_COOLDOWN_MS = 300_000;
 
   constructor(deps: OrchestratorDeps) {
     this.manager = deps.manager;
     this.emit = deps.emit;
     this.onLayout = deps.onLayout;
     this.store = new FacilityStateStore(WORKER_ROOM_COUNT);
+    // Pre-populate roster so handleWorkerProviderFailed works before start() is called.
+    this.workerRoster = buildFacilityWorkerRoster();
   }
 
   /** Boot throne room, begin progressive expansion toward {@link WORKER_ROOM_COUNT}. */
@@ -155,14 +170,17 @@ export class OrchestratorManager {
       this.homeComplete = this.homeBuiltSteps >= HOME_BUILD_STEP_COUNT;
     }
 
+    this.workerRoster = buildFacilityWorkerRoster();
+    const orchestratorLane = pickOrchestratorProvider(this.workerRoster);
     this.orchestratorId = this.manager.spawn({
-      providerId: WORKER_PROVIDER_ID,
+      providerId: orchestratorLane.providerId,
       sessionId: 'orchestrator-session',
       cwd: this.cwd,
       sandbox: null,
       folderName: 'ORCHESTRATOR',
       seatId: ORCHESTRATOR_SEAT_ID,
       socialRoam: true,
+      bypassPermissions: orchestratorLane.providerId !== 'demo',
     });
 
     this.narrate(
@@ -204,51 +222,7 @@ export class OrchestratorManager {
   }
 
   private workerProviderForRoom(roomIndex: number): WorkerProviderAssignment {
-    const realProviderRoster: WorkerProviderAssignment[] = [];
-    if (configuredEnv('KIMI_API_KEY')) {
-      realProviderRoster.push({
-        providerId: KIMI_WORKER_PROVIDER_ID,
-        laneLabel: 'Kimi K2.6 coding lane',
-        capability: 'deep coding, refactoring, and implementation planning',
-      });
-    }
-
-    const zaiSlots = configuredZaiWorkerSlots();
-    for (let i = 0; i < zaiSlots; i++) {
-      realProviderRoster.push({
-        providerId: ZAI_WORKER_PROVIDER_ID,
-        laneLabel: `Z.ai GLM-5.1 coding lane #${i + 1}`,
-        capability: 'coding endpoint review, architecture, and concrete implementation support',
-      });
-    }
-
-    const zai5Slots = configuredZai5WorkerSlots();
-    for (let i = 0; i < zai5Slots; i++) {
-      realProviderRoster.push({
-        providerId: ZAI_GLM5_WORKER_PROVIDER_ID,
-        laneLabel: `Z.ai GLM-5 coding lane #${i + 1}`,
-        capability: 'GLM-5 coding, structured reasoning, and system design',
-      });
-    }
-
-    if (claudeStreamWorkersEnabled()) {
-      realProviderRoster.push({
-        providerId: CLAUDE_STREAM_PROVIDER_ID,
-        laneLabel: 'Claude Code stream-json lane',
-        capability: 'owned Claude CLI sessions with structured NDJSON I/O (OMC-style)',
-      });
-    }
-
-    // Round-robin: every worker room gets a real provider when keys are present.
-    // Fall back to demo only when no real providers are configured.
-    if (realProviderRoster.length === 0) {
-      return {
-        providerId: WORKER_PROVIDER_ID,
-        laneLabel: 'demo swarm lane',
-        capability: 'token-free simulation, handoffs, planning, and coordination',
-      };
-    }
-    return realProviderRoster[roomIndex % realProviderRoster.length];
+    return pickWorkerProviderForRoom(roomIndex, this.workerRoster);
   }
 
   private pushLayout(builtWorkerRooms: number): void {
@@ -499,19 +473,37 @@ export class OrchestratorManager {
     const workerCwd = sandbox ? roomDir : this.cwd;
     const sessionId = `worker-session-room-${roomIndex}`;
 
-    const workerId = this.manager.spawn({
+    const spawnOpts = {
       providerId: provider.providerId,
       sessionId,
       cwd: workerCwd,
       sandbox,
+      bypassPermissions: provider.providerId !== WORKER_PROVIDER_ID,
       folderName: meta.label,
       seatId: meta.seatId,
       roomIndex,
-      socialRoam: true,
-    });
+      socialRoam: true as const,
+      leadAgentId: this.orchestratorId ?? undefined,
+    };
+
+    let workerId: number;
+    let laneLabel = provider.laneLabel;
+    try {
+      workerId = this.manager.spawn(spawnOpts);
+      if (workerId === -1) {
+        // spawn() returned sentinel -1 (demo not registered either) — skip room
+        throw new Error(`spawn returned -1 for provider "${provider.providerId}"`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[OrchestratorManager] Room ${roomIndex + 1}: spawn failed — ${msg}; retrying with demo`);
+      this.narrate(`${meta.label}: provider "${provider.providerId}" unavailable — using demo lane`);
+      laneLabel = 'demo swarm lane';
+      workerId = this.manager.spawn({ ...spawnOpts, providerId: WORKER_PROVIDER_ID, bypassPermissions: false });
+    }
     this.workerIds.push(workerId);
 
-    this.facilityChat(workerId, `${meta.label} online — ${provider.laneLabel}`, null);
+    this.facilityChat(workerId, `${meta.label} online -- ${laneLabel}`, null);
     if (this.orchestratorId !== null) {
       this.facilityChat(
         this.orchestratorId,
@@ -524,6 +516,7 @@ export class OrchestratorManager {
 
   private dispatch(): void {
     if (this.workerIds.length === 0) return;
+    this.relayChildCountThisCycle = 0;
     const batch = Math.min(
       this.workerIds.length <= 3 ? this.workerIds.length : 2,
       this.workerIds.length,
@@ -538,6 +531,15 @@ export class OrchestratorManager {
   private dispatchToWorker(workerIndex: number): void {
     const workerId = this.workerIds[workerIndex];
     const roomNum = workerIndex + 1;
+    this.selfMaintainDispatchCount++;
+
+    // Every Nth dispatch, slot a self-maintenance task when enabled.
+    const maintainTask = this.pickSelfMaintainTask();
+    if (maintainTask) {
+      this.dispatchSelfMaintainTask(workerId, roomNum - 1, maintainTask);
+      return;
+    }
+
     const task = pickSpacetimeTask(this.taskCursor);
     this.taskCursor++;
 
@@ -553,6 +555,8 @@ export class OrchestratorManager {
       this.workerActiveTaskId.set(workerId, taskNodeId);
       this.workerHadToolsInTurn.delete(workerId);
       this.workerAssistantTurnText.delete(workerId);
+      this.armStallTimer(workerId, taskNodeId, task);
+      this.workerRelayDepth.set(workerId, 0);
       this.emitTaskTree();
     }
 
@@ -565,12 +569,55 @@ export class OrchestratorManager {
     this.manager.sendInput(workerId, this.buildPrimaryPrompt(workerIndex, task));
   }
 
+  /**
+   * Return the next self-maintenance task if this dispatch cycle is a
+   * maintenance slot and the feature is enabled, otherwise return null.
+   */
+  private pickSelfMaintainTask(): SelfMaintenanceTask | null {
+    if (!selfMaintainEnabled()) return null;
+    if (this.selfMaintainDispatchCount % OrchestratorManager.SELF_MAINTAIN_EVERY_N !== 0) {
+      return null;
+    }
+    if (this.selfMaintainQueue.length === 0) {
+      this.selfMaintainQueue = generateSelfMaintenanceTasks(this.cwd);
+    }
+    return this.selfMaintainQueue.shift() ?? null;
+  }
+
+  /** Dispatch a self-maintenance task to a worker, registering it on the mission board. */
+  private dispatchSelfMaintainTask(
+    workerId: number,
+    roomIndex: number,
+    mt: SelfMaintenanceTask,
+  ): void {
+    const title = `${SELF_MAINTAIN_PREFIX} ${mt.title.replace(SELF_MAINTAIN_PREFIX, '').trim()}`;
+    const taskNodeId =
+      this.taskTree.dispatchChild('swarm-root', workerId, title) ?? undefined;
+    if (taskNodeId) {
+      this.workerActiveTaskId.set(workerId, taskNodeId);
+      this.workerHadToolsInTurn.delete(workerId);
+      this.workerAssistantTurnText.delete(workerId);
+      this.armStallTimer(workerId, taskNodeId, title);
+      this.workerRelayDepth.set(workerId, 0);
+      this.emitTaskTree();
+    }
+    this.store.dispatchTask(roomIndex, title, workerId);
+    this.narrate(`Self-maintain → ${workerRoomMeta(roomIndex).label}: ${mt.source}`);
+    if (this.orchestratorId !== null) {
+      this.facilityChat(this.orchestratorId, title, workerId);
+    }
+    this.manager.sendInput(workerId, mt.prompt);
+  }
+
   /** Ask another worker to meet in the corridor before merging work. */
   private relayPeerHandoff(fromWorkerId: number, task: string): void {
     const peers = this.workerIds.filter((w) => w !== fromWorkerId);
     if (peers.length === 0) return;
     const now = Date.now();
     if (!this.tryBeginRelay(now)) return;
+    const depth = this.workerRelayDepth.get(fromWorkerId) ?? 0;
+    if (depth >= OrchestratorManager.MAX_RELAY_DEPTH) return;
+    if (this.relayChildCountThisCycle >= OrchestratorManager.MAX_RELAY_CHILDREN) return;
 
     const peerId = peers[this.workerCursor % peers.length];
     const peerRoom = this.workerIds.indexOf(peerId);
@@ -583,6 +630,8 @@ export class OrchestratorManager {
     if (peerRoom >= 0) {
       this.store.dispatchTask(peerRoom, `peer review: ${task}`, peerId);
     }
+    this.workerRelayDepth.set(peerId, depth + 1);
+    this.relayChildCountThisCycle++;
     this.markRelayRecipient(peerId, now);
     this.manager.sendInput(peerId, this.buildPeerPrompt(fromLabel, task));
   }
@@ -592,11 +641,20 @@ export class OrchestratorManager {
     if (this.workerIds.includes(id)) {
       if (ev.kind === 'toolStart') {
         this.workerHadToolsInTurn.add(id);
+        this.clearStallTimer(id);
       } else if (ev.kind === 'turnEnd') {
         this.handleWorkerTurnEnd(id);
       } else if (ev.kind === 'message' && ev.role === 'assistant') {
         const prev = this.workerAssistantTurnText.get(id) ?? '';
         this.workerAssistantTurnText.set(id, `${prev}${ev.text}`);
+        // Self-maintenance outcome markers — log result to facility chat.
+        if (ev.text.includes(SELF_MAINTAIN_OK_MARKER)) {
+          const after = ev.text.slice(ev.text.indexOf(SELF_MAINTAIN_OK_MARKER)).slice(0, 120);
+          this.facilityChat(id, `OK ${after}`, this.orchestratorId);
+        } else if (ev.text.includes(SELF_MAINTAIN_FAIL_MARKER)) {
+          const after = ev.text.slice(ev.text.indexOf(SELF_MAINTAIN_FAIL_MARKER)).slice(0, 120);
+          this.facilityChat(id, `FAIL ${after}`, this.orchestratorId);
+        }
       }
     }
 
@@ -641,17 +699,109 @@ export class OrchestratorManager {
     this.relayWorkerFinding(id, snippet);
   }
 
+  /**
+   * Called by SpawnedAgentManager when a worker exits with an auth error,
+   * non-zero exit code, or repeated stalls.  Re-spawns with the next
+   * available provider lane; falls back to demo after MAX_FAILOVER_ATTEMPTS.
+   */
+  handleWorkerProviderFailed(workerId: number, reason: string): void {
+    const roomIndex = this.workerIds.indexOf(workerId);
+    if (roomIndex === -1) return; // not a managed worker
+
+    const failedProvider = this.manager.getDetails(workerId)?.providerId ?? '';
+    const attempts = (this.workerRoomFailAttempts.get(roomIndex) ?? 0) + 1;
+    this.workerRoomFailAttempts.set(roomIndex, attempts);
+
+    const meta = workerRoomMeta(roomIndex);
+    this.narrate(
+      `${meta.label} provider failed (${failedProvider}): ${reason}. Failover attempt ${attempts}/${OrchestratorManager.MAX_FAILOVER_ATTEMPTS}.`,
+    );
+
+    // Mark failed provider on cooldown
+    if (failedProvider) {
+      this.providerCooldowns.set(
+        failedProvider,
+        Date.now() + OrchestratorManager.PROVIDER_COOLDOWN_MS,
+      );
+    }
+
+    // Emit badge update to surface degraded lane in the UI
+    this.emit({
+      type: 'agentBadge',
+      agentId: workerId,
+      badge: 'degraded',
+      reason: `Provider ${failedProvider} failed — switching lane`,
+    });
+
+    const nextLane = this.pickNextProvider(roomIndex, failedProvider);
+
+    if (attempts > OrchestratorManager.MAX_FAILOVER_ATTEMPTS) {
+      this.narrate(
+        `${meta.label}: max failover attempts reached — holding on ${nextLane.laneLabel}`,
+      );
+    }
+
+    const switched = this.manager.replaceProvider(workerId, nextLane.providerId);
+    if (!switched) {
+      this.narrate(`${meta.label}: replaceProvider failed — worker may be stale`);
+      return;
+    }
+
+    this.facilityChat(
+      this.orchestratorId ?? workerId,
+      `${meta.label} lane switched to ${nextLane.laneLabel} after failure`,
+      workerId,
+    );
+
+    // Re-activate with a fresh task so the worker doesn't sit idle
+    if (this.homeComplete) {
+      this.activateWorker(roomIndex, workerId);
+    }
+  }
+
+  /**
+   * Pick the next non-cooled-down provider for a room.
+   * Walks the roster starting after failedProviderId; falls back to demo.
+   */
+  private pickNextProvider(roomIndex: number, failedProviderId: string): FacilityProviderLane {
+    const now = Date.now();
+    const baseRoster = this.workerRoster.length > 0 ? this.workerRoster : buildFacilityWorkerRoster();
+    const roster = baseRoster.filter(
+      (lane) => (this.providerCooldowns.get(lane.providerId) ?? 0) < now,
+    );
+
+    const failedIdx = roster.findIndex((lane) => lane.providerId === failedProviderId);
+    // Try lanes after the failed one first, then wrap around
+    const candidates =
+      failedIdx === -1
+        ? roster
+        : [...roster.slice(failedIdx + 1), ...roster.slice(0, failedIdx)];
+
+    if (candidates.length > 0) {
+      // Round-robin within available candidates using roomIndex
+      return candidates[roomIndex % candidates.length];
+    }
+
+    // All real providers are on cooldown — use demo
+    return { providerId: WORKER_PROVIDER_ID, laneLabel: 'demo swarm lane', capability: 'simulation' };
+  }
+
   private relayWorkerFinding(fromWorkerId: number, snippet: string): void {
     const peers = this.workerIds.filter((w) => w !== fromWorkerId);
     if (peers.length === 0) return;
     const now = Date.now();
     if (!this.tryBeginRelay(now)) return;
+    const depth = this.workerRelayDepth.get(fromWorkerId) ?? 0;
+    if (depth >= OrchestratorManager.MAX_RELAY_DEPTH) return;
+    if (this.relayChildCountThisCycle >= OrchestratorManager.MAX_RELAY_CHILDREN) return;
 
     const peerId = peers[Math.floor(Math.random() * peers.length)];
     const fromLabel =
       this.manager.getDetails(fromWorkerId)?.folderName ?? `Worker #${fromWorkerId}`;
     this.emit({ type: 'agentMeet', fromId: fromWorkerId, toId: peerId });
     this.facilityChat(fromWorkerId, `${fromLabel} ping: ${snippet}`, peerId);
+    this.workerRelayDepth.set(peerId, depth + 1);
+    this.relayChildCountThisCycle++;
     this.markRelayRecipient(peerId, now);
     this.manager.sendInput(
       peerId,
@@ -753,6 +903,7 @@ export class OrchestratorManager {
   }
 
   private handleWorkerTurnEnd(workerId: number): void {
+    this.clearStallTimer(workerId);
     const assistantText = this.workerAssistantTurnText.get(workerId) ?? '';
     this.workerAssistantTurnText.delete(workerId);
     const hadTools = this.workerHadToolsInTurn.delete(workerId);
@@ -785,19 +936,28 @@ export class OrchestratorManager {
       this.narrate(
         `Stall detected on ${workerRoomMeta(Math.max(0, roomIndex)).label} — retry ${attempt}/${MAX_STALL_RETRIES}`,
       );
-      this.manager.sendInput(
-        workerId,
-        [
-          'STALL_RETRY: Your last reply promised action but no tools ran.',
-          'Run at least one concrete tool step now, or report a specific blocker.',
-          `Assignment: ${node.description}`,
-        ].join('\n'),
-      );
+      const backoffMs =
+        OrchestratorManager.STALL_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+      const retryMsg = [
+        'STALL_RETRY: Your last reply promised action but no tools ran.',
+        'Run at least one concrete tool step now, or report a specific blocker.',
+        `Assignment: ${node.description}`,
+      ].join('\n');
+      setTimeout(() => {
+        this.manager.sendInput(workerId, retryMsg);
+      }, backoffMs);
       return;
     }
 
     this.taskTree.completeChild(taskId, assistantText.slice(0, 500) || '(no output)');
-    this.taskTree.acceptChild(taskId);
+    if (node.stallRetryCount >= MAX_STALL_RETRIES) {
+      this.taskTree.rejectChild(
+        taskId,
+        'Stall retry limit reached: no tool activity after re-prompts.',
+      );
+    } else {
+      this.taskTree.acceptChild(taskId);
+    }
     this.workerActiveTaskId.delete(workerId);
     this.emitTaskTree();
   }
@@ -910,45 +1070,68 @@ export class OrchestratorManager {
 
   /** Log active vs key-gated providers to console and narrate lanes at startup. */
   private logProviderReport(): void {
-    const active: string[] = [];
-    const gated: string[] = [];
-
-    if (configuredEnv('KIMI_API_KEY')) {
-      active.push('kimi-k2');
-    } else {
-      gated.push('kimi-k2 (KIMI_API_KEY not set)');
+    const report = buildFacilityProviderStartupReport();
+    console.log(`[Orchestrator] ${formatFacilityStartupMessage(report)}`);
+    if (report.gated.length > 0) {
+      console.log(`[Orchestrator] Inactive until configured: ${report.gated.join(' | ')}`);
     }
-    const zai51Slots = configuredZaiWorkerSlots();
-    if (zai51Slots > 0) {
-      active.push(`zai-glm-5.1-coding (${zai51Slots} slot${zai51Slots > 1 ? 's' : ''})`);
-    } else {
-      gated.push('zai-glm-5.1-coding (ZAI_GLM_5_1_CODING_API_KEY not set)');
-    }
-    const zai5Slots = configuredZai5WorkerSlots();
-    if (zai5Slots > 0) {
-      active.push(`zai-glm-5-coding (${zai5Slots} slot${zai5Slots > 1 ? 's' : ''})`);
-    } else {
-      gated.push('zai-glm-5-coding (ZAI_GLM_5_CODING_API_KEY not set)');
-    }
-    if (claudeStreamWorkersEnabled()) {
-      active.push('claude-stream');
-    } else {
-      gated.push('claude-stream (claude CLI not found / PIXEL_AGENTS_CLAUDE_WORKERS not set)');
-    }
-
-    const activeStr =
-      active.length > 0 ? active.join(', ') : 'none — demo fallback for all workers';
-    console.log(`[Orchestrator] Active providers: ${activeStr}`);
-    if (gated.length > 0) {
-      console.log(`[Orchestrator] Key-gated (inactive): ${gated.join(' | ')}`);
-    }
+    const orch = pickOrchestratorProvider(this.workerRoster);
+    console.log(`[Orchestrator] Command seat: ${orch.laneLabel} (${orch.providerId})`);
 
     const lanes: string[] = [];
     for (let i = 0; i < this.targetRooms; i++) {
       const p = this.workerProviderForRoom(i);
       if (!lanes.includes(p.laneLabel)) lanes.push(p.laneLabel);
     }
-    this.narrate(`Provider lanes: ${lanes.join(' · ')}`);
+    this.narrate(`Provider lanes: ${lanes.join(', ')}`);
+  }
+
+  private armStallTimer(workerId: number, taskId: string, description: string): void {
+    this.clearStallTimer(workerId);
+    const t = setTimeout(() => {
+      this.onStallTimeout(workerId, taskId, description);
+    }, OrchestratorManager.STALL_DETECT_MS);
+    this.workerStallTimers.set(workerId, t);
+  }
+
+  private clearStallTimer(workerId: number): void {
+    const t = this.workerStallTimers.get(workerId);
+    if (t !== undefined) {
+      clearTimeout(t);
+      this.workerStallTimers.delete(workerId);
+    }
+  }
+
+  private onStallTimeout(workerId: number, taskId: string, description: string): void {
+    this.workerStallTimers.delete(workerId);
+    const node = this.taskTree.getNode(taskId);
+    if (!node || node.status !== 'processing') return;
+    const roomIndex = this.workerIds.indexOf(workerId);
+    const label = workerRoomMeta(Math.max(0, roomIndex)).label;
+    if (node.stallRetryCount < MAX_STALL_RETRIES) {
+      const attempt = this.taskTree.incrementStallRetry(taskId);
+      this.narrate(
+        `Wall-clock stall on ${label} — re-prompt ${attempt}/${MAX_STALL_RETRIES}`,
+      );
+      this.manager.sendInput(
+        workerId,
+        [
+          'STALL_TIMEOUT: No tool activity detected in 30 s.',
+          'Run at least one concrete tool step now, or report a specific blocker.',
+          `Assignment: ${description}`,
+        ].join('\n'),
+      );
+      this.armStallTimer(workerId, taskId, description);
+    } else {
+      this.narrate(`${label} wall-clock stall exhausted retries — marking failed.`);
+      this.taskTree.completeChild(taskId, '(stall timeout — no tool activity)');
+      this.taskTree.rejectChild(
+        taskId,
+        'Wall-clock stall timeout: no tool calls after re-prompts.',
+      );
+      this.workerActiveTaskId.delete(workerId);
+      this.emitTaskTree();
+    }
   }
 
   private facilityChat(fromId: number, text: string, toId: number | null = null): void {
@@ -970,6 +1153,48 @@ export class OrchestratorManager {
       text,
     });
     this.facilityChat(this.orchestratorId, text, null);
+  }
+
+  /** Halt all facility timers (workers finish their active task but no new dispatches). */
+  pause(): void {
+    if (this.buildTimer) { clearInterval(this.buildTimer); this.buildTimer = null; }
+    if (this.homeBuildTimer) { clearInterval(this.homeBuildTimer); this.homeBuildTimer = null; }
+    if (this.dispatchTimer) { clearInterval(this.dispatchTimer); this.dispatchTimer = null; }
+    this.narrate('Facility control: PAUSED. Workers will complete active tasks.');
+  }
+
+  /** Restart whichever timer is appropriate for the current facility phase. */
+  resume(): void {
+    if (!this.roomsComplete && !this.buildTimer) {
+      this.buildTimer = setInterval(() => { void this.expandNextRoom(); }, roomBuildIntervalMs());
+    } else if (this.roomsComplete && !this.homeComplete && !this.homeBuildTimer) {
+      this.homeBuildTimer = setInterval(() => { void this.expandHomeStep(); }, homeBuildIntervalMs());
+    } else if (this.homeComplete && !this.dispatchTimer) {
+      this.dispatchTimer = setInterval(() => this.dispatch(), dispatchIntervalMs());
+    }
+    this.narrate('Facility control: RESUMED. Swarm coordination active.');
+  }
+
+  /** Manually trigger the next room expansion (no-op when rooms are complete). */
+  buildNextRoom(): void {
+    if (!this.roomsComplete) { void this.expandNextRoom(); }
+  }
+
+  /** Adjust dispatch / build cadence live. Restarts active timers at the new rate. */
+  setTempo(tempo: FacilityTempo): void {
+    setFacilityTempo(tempo);
+    if (this.dispatchTimer) {
+      clearInterval(this.dispatchTimer);
+      this.dispatchTimer = setInterval(() => this.dispatch(), dispatchIntervalMs());
+    }
+    if (this.buildTimer) {
+      clearInterval(this.buildTimer);
+      this.buildTimer = setInterval(() => { void this.expandNextRoom(); }, roomBuildIntervalMs());
+    }
+    if (this.homeBuildTimer) {
+      clearInterval(this.homeBuildTimer);
+      this.homeBuildTimer = setInterval(() => { void this.expandHomeStep(); }, homeBuildIntervalMs());
+    }
   }
 
   /** Current layout for late-joining webviews. */
@@ -999,6 +1224,8 @@ export class OrchestratorManager {
   }
 
   dispose(): void {
+    for (const t of this.workerStallTimers.values()) clearTimeout(t);
+    this.workerStallTimers.clear();
     if (this.buildTimer) clearInterval(this.buildTimer);
     if (this.homeBuildTimer) clearInterval(this.homeBuildTimer);
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);

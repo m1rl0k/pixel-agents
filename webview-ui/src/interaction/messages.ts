@@ -72,6 +72,15 @@ export interface PermissionReplyMessage {
   approved: boolean;
 }
 
+export type FacilityTempo = 'slow' | 'normal' | 'fast';
+
+/** Facility control commands sent from the CommandBar to the orchestrator. */
+export interface FacilityCommandMessage {
+  type: 'facilityCommand';
+  action: 'pause' | 'resume' | 'buildRoom' | 'setTempo';
+  tempo?: FacilityTempo;
+}
+
 /** Union of the interaction messages the webview emits. */
 export type InteractionClientMessage =
   | SpawnAgentMessage
@@ -79,7 +88,8 @@ export type InteractionClientMessage =
   | SwarmInputMessage
   | AgentInterruptMessage
   | StopSpawnedAgentMessage
-  | PermissionReplyMessage;
+  | PermissionReplyMessage
+  | FacilityCommandMessage;
 
 /**
  * Typed boundary for sending interaction messages. The core ClientMessage union

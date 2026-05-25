@@ -9,7 +9,7 @@ const BASH_COMMAND_DISPLAY_MAX_LENGTH = 40;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function tryParse(value: unknown): unknown {
+export function tryParseCodexJson(value: unknown): unknown {
   if (typeof value !== 'string') return value ?? {};
   try {
     return JSON.parse(value);
@@ -25,7 +25,7 @@ function tryParse(value: unknown): unknown {
  *   - an array of { type:'output_text'|'text', text:string } items
  *   - a single { type:'output_text'|'text', text:string } object
  */
-function extractText(content: unknown): string {
+export function extractCodexText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content
@@ -43,14 +43,14 @@ function extractText(content: unknown): string {
   if (content && typeof content === 'object' && 'summary' in content) {
     // reasoning objects sometimes carry a summary array
     const summary = (content as Record<string, unknown>).summary;
-    return extractText(summary);
+    return extractCodexText(summary);
   }
   return '';
 }
 
 // ── formatToolStatus ─────────────────────────────────────────────────────────
 
-function formatToolStatus(toolName: string, input?: unknown): string {
+export function formatCodexToolStatus(toolName: string, input?: unknown): string {
   const inp = (input ?? {}) as Record<string, unknown>;
 
   switch (toolName) {
@@ -135,7 +135,7 @@ function getAllSessionRoots(): string[] {
  *
  * We parse defensively — any unexpected shape returns null instead of throwing.
  */
-function parseTranscriptLine(line: string): AgentEvent | null {
+export function parseCodexJsonLine(line: string): AgentEvent | null {
   if (!line.trim()) return null;
 
   let parsed: unknown;
@@ -178,7 +178,7 @@ function parseTranscriptLine(line: string): AgentEvent | null {
           kind: 'toolStart',
           toolId,
           toolName,
-          input: tryParse(pay.arguments),
+          input: tryParseCodexJson(pay.arguments),
         };
       }
 
@@ -192,16 +192,16 @@ function parseTranscriptLine(line: string): AgentEvent | null {
       if (itemType === 'message') {
         // payload: { type:'message', role, content, ... }
         const role = pay.role === 'assistant' ? 'assistant' : 'user';
-        const text = extractText(pay.content);
+        const text = extractCodexText(pay.content);
         return { kind: 'message', role, text };
       }
 
       if (itemType === 'reasoning') {
         // payload: { type:'reasoning', content|summary, ... }
         const text =
-          extractText(pay.content) ||
-          extractText(pay.summary) ||
-          extractText(pay.text);
+          extractCodexText(pay.content) ||
+          extractCodexText(pay.summary) ||
+          extractCodexText(pay.text);
         return { kind: 'reasoning', text };
       }
 
@@ -265,7 +265,7 @@ export const codexProvider: FileProvider = {
   displayName: 'OpenAI Codex',
   protocolVersion: 1,
 
-  formatToolStatus,
+  formatToolStatus: formatCodexToolStatus,
 
   permissionExemptTools: new Set<string>(),
   // Codex subagents are handled via hooks in hook mode; file mode has no subagent concept.
@@ -276,6 +276,6 @@ export const codexProvider: FileProvider = {
   getAllSessionRoots,
   sessionFilePattern: 'rollout-*.jsonl',
 
-  parseTranscriptLine,
+  parseTranscriptLine: parseCodexJsonLine,
   buildLaunchCommand,
 };

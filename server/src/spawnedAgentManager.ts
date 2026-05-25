@@ -17,7 +17,23 @@
 
 import type { AgentEvent, StreamProvider } from '../../core/src/provider.js';
 import type { AgentMemoryStore } from './agentMemoryStore.js';
+import { WORKER_PROVIDER_ID } from './facilityConstants.js';
+import {
+  type AgentTierEntry,
+  buildApprovalPrompt,
+  findSeniorAgent,
+  getTierForProvider,
+  parseApprovalReply,
+  summarizeInput,
+  type WorkerTier,
+} from './omc/agentHierarchy.js';
 import { PermissionGate } from './omc/permissionGate.js';
+import {
+  type AutonomyLevel,
+  classify,
+  DEFAULT_AUTONOMY_LEVEL,
+  isDangerInput,
+} from './omc/permissionPolicy.js';
 import type { ProviderRegistry } from './providers/registry.js';
 import { ProcessRunner } from './runner/processRunner.js';
 import { buildSandboxExecArgs } from './sandbox/osNative.js';
@@ -40,6 +56,10 @@ export interface SpawnedAgentManagerDeps {
   onAgentEvent?: (id: number, event: AgentEvent) => void;
   /** Optional persistent memory store: replays history on reconnect + injects recall into prompts. */
   memory?: AgentMemoryStore;
+  /** Return the current autonomy level. Defaults to DEFAULT_AUTONOMY_LEVEL when absent. */
+  getAutonomyLevel?: () => AutonomyLevel;
+  /** Called when a spawned worker's provider fails (used by orchestrator for failover). */
+  onWorkerFailed?: (id: number, reason: string) => void;
 }
 
 /** Options for {@link SpawnedAgentManager.spawn}. */
@@ -58,6 +78,20 @@ export interface SpawnAgentOptions {
   roomIndex?: number;
   /** True for game-floor workers that should roam and meet in the browser. */
   socialRoam?: boolean;
+  /**
+   * Agent id of the senior agent that delegated this worker's task.
+   * When set, permission requests are auto-approved at 'auto' level (coding ops
+   * pass; only explicit danger patterns surface to the human approvals box).
+   */
+  leadAgentId?: number;
+}
+
+/** Tracks a permission request being routed to a senior agent for approval. */
+interface PendingSeniorApproval {
+  requestId: number;
+  requestingAgentId: number;
+  toolName: string;
+  input: unknown;
 }
 
 /** One owned agent — process may be running or dormant between turns. */
@@ -74,6 +108,10 @@ interface SpawnedAgent {
   seatId?: string;
   roomIndex?: number;
   socialRoam?: boolean;
+  /** Senior agent id that delegated this agent's task (enables delegated approval). */
+  leadAgentId?: number;
+  /** Computed from providerId via DEFAULT_PROVIDER_TIER_MAP; used for hierarchy routing. */
+  workerTier: WorkerTier;
   /** After first Claude stream-json session, relaunch with --resume (OMC pattern). */
   claudeSessionUsed?: boolean;
 }
@@ -85,9 +123,17 @@ export class SpawnedAgentManager {
   private readonly makeRunner: () => ProcessRunner;
   private readonly onAgentEvent?: (id: number, event: AgentEvent) => void;
   private readonly memory?: AgentMemoryStore;
+  private readonly getAutonomyLevel: () => AutonomyLevel;
 
   private readonly agents = new Map<number, SpawnedAgent>();
   private readonly permissionGate = new PermissionGate();
+  /** Last tool started per agent — used to classify permission requests. */
+  private readonly lastToolByAgent = new Map<number, { toolName: string; input?: unknown }>();
+  /**
+   * Tracks permission requests delegated to a senior agent for approval.
+   * Key = approving (senior) agent id; value = pending approval context.
+   */
+  private readonly pendingSeniorApprovals = new Map<number, PendingSeniorApproval>();
 
   constructor(deps: SpawnedAgentManagerDeps) {
     this.registry = deps.registry;
@@ -96,6 +142,7 @@ export class SpawnedAgentManager {
     this.makeRunner = deps.makeRunner ?? (() => new ProcessRunner());
     this.onAgentEvent = deps.onAgentEvent;
     this.memory = deps.memory;
+    this.getAutonomyLevel = deps.getAutonomyLevel ?? (() => DEFAULT_AUTONOMY_LEVEL);
   }
 
   /**
@@ -106,17 +153,22 @@ export class SpawnedAgentManager {
    * @returns the allocated agent id.
    */
   spawn(opts: SpawnAgentOptions): number {
-    const provider = this.registry.get(opts.providerId);
-    if (!provider) {
-      throw new Error(`SpawnedAgentManager: unknown provider "${opts.providerId}"`);
+    let resolvedProviderId = opts.providerId;
+    let resolvedProvider = this.registry.get(resolvedProviderId);
+    if (!resolvedProvider || resolvedProvider.kind !== 'stream') {
+      // Unknown or non-stream provider — warn and fall back to demo so the facility keeps running.
+      const reason = !resolvedProvider
+        ? `unknown provider "${resolvedProviderId}"`
+        : `provider "${resolvedProviderId}" has kind "${resolvedProvider.kind}" (not a stream provider)`;
+      console.warn(`[SpawnedAgentManager] ${reason} — falling back to demo`);
+      resolvedProviderId = WORKER_PROVIDER_ID;
+      resolvedProvider = this.registry.get(WORKER_PROVIDER_ID);
+      if (!resolvedProvider || resolvedProvider.kind !== 'stream') {
+        console.error('[SpawnedAgentManager] Demo provider not registered — cannot spawn agent, skipping room');
+        return -1;
+      }
     }
-    if (provider.kind !== 'stream') {
-      throw new Error(
-        `SpawnedAgentManager: provider "${opts.providerId}" has kind "${provider.kind}", ` +
-          `but only stream providers can be spawned`,
-      );
-    }
-    const streamProvider: StreamProvider = provider;
+    const streamProvider: StreamProvider = resolvedProvider as StreamProvider;
 
     const id = this.allocateId();
     const sandboxTier = opts.sandbox?.tier ?? SandboxTier.NONE;
@@ -124,7 +176,7 @@ export class SpawnedAgentManager {
     const agent: SpawnedAgent = {
       runner: null,
       provider: streamProvider,
-      providerId: opts.providerId,
+      providerId: resolvedProviderId,
       sessionId: opts.sessionId,
       cwd: opts.cwd,
       sandbox: opts.sandbox,
@@ -134,6 +186,8 @@ export class SpawnedAgentManager {
       seatId: opts.seatId,
       roomIndex: opts.roomIndex,
       socialRoam: opts.socialRoam,
+      leadAgentId: opts.leadAgentId,
+      workerTier: getTierForProvider(resolvedProviderId),
     };
 
     this.agents.set(id, agent);
@@ -143,7 +197,7 @@ export class SpawnedAgentManager {
     this.emit({
       type: 'agentCreated',
       id,
-      providerId: opts.providerId,
+      providerId: resolvedProviderId,
       sessionId: opts.sessionId,
       external: false,
       sandboxTier,
@@ -289,6 +343,24 @@ export class SpawnedAgentManager {
     };
   }
 
+  /**
+   * Replace the provider for an existing agent (failover path).
+   * Stops the current runner, swaps the provider, and returns true on success.
+   * Returns false if the agent or new provider is not found.
+   */
+  replaceProvider(id: number, providerId: string): boolean {
+    const agent = this.agents.get(id);
+    if (!agent) return false;
+    const provider = this.registry.get(providerId);
+    if (!provider || provider.kind !== 'stream') return false;
+    agent.runner?.stop();
+    agent.runner = null;
+    agent.provider = provider as StreamProvider;
+    agent.providerId = providerId;
+    agent.workerTier = getTierForProvider(providerId);
+    return true;
+  }
+
   /** Stop all owned agents. */
   dispose(): void {
     for (const agent of this.agents.values()) {
@@ -341,7 +413,7 @@ export class SpawnedAgentManager {
     agent: SpawnedAgent,
   ): { command: string; args: string[] } {
     const sandbox = agent.sandbox;
-    if (sandbox === null || sandbox.tier === SandboxTier.NONE) {
+    if (!sandbox || sandbox.tier === SandboxTier.NONE) {
       return { command: launchCommand, args: launchArgs };
     }
     if (sandbox.tier === SandboxTier.OS_NATIVE) {
@@ -369,6 +441,7 @@ export class SpawnedAgentManager {
         }
         return;
       case 'toolStart':
+        this.lastToolByAgent.set(id, { toolName: ev.toolName, input: ev.input });
         this.emit({
           type: 'agentToolStart',
           id,
@@ -392,14 +465,72 @@ export class SpawnedAgentManager {
       case 'message':
         this.emit({ type: 'agentActivity', id, kind: 'message', role: ev.role, text: ev.text });
         this.onAgentEvent?.(id, ev);
+        // If this agent is acting as a senior approver, check for [APPROVE]/[DENY].
+        this.maybeResolveSeniorApproval(id, ev.text ?? '');
         return;
       case 'reasoning':
         this.emit({ type: 'agentActivity', id, kind: 'reasoning', text: ev.text });
         this.onAgentEvent?.(id, ev);
         return;
       case 'permissionRequest': {
+        const lastTool = this.lastToolByAgent.get(id);
+        const toolName = lastTool?.toolName ?? '';
+        const input = lastTool?.input;
+
+        // Delegated agents (spawned by a senior) use 'auto' — the senior already
+        // approved the high-level goal. Only danger patterns still surface to humans.
+        const effectiveLevel = agent.leadAgentId !== undefined ? 'auto' : this.getAutonomyLevel();
+        const decision = classify(toolName, input, effectiveLevel);
+
+        if (decision === 'approve') {
+          // Auto-approve: resolve gate immediately — no UI prompt.
+          const { requestId } = this.permissionGate.wait(id);
+          this.permissionGate.reply(requestId, true);
+          agent.runner?.writeStdin('y\n');
+          return;
+        }
+
+        // Decision = 'prompt'. Routing:
+        //   DB-danger → always human-gated (never routed to a senior agent).
+        //   Other      → find available senior agent; escalate to human if none.
+        const isDanger = isDangerInput(input);
+
+        if (!isDanger) {
+          const entries = this.buildTierEntries();
+          const seniorId = findSeniorAgent(id, agent.workerTier, entries);
+          if (seniorId !== null) {
+            const { requestId } = this.permissionGate.wait(id);
+            this.pendingSeniorApprovals.set(seniorId, {
+              requestId,
+              requestingAgentId: id,
+              toolName,
+              input,
+            });
+            const prompt = buildApprovalPrompt(id, toolName, summarizeInput(input));
+            this.sendInput(seniorId, prompt);
+            this.emit({
+              type: 'agentToolPermission',
+              id,
+              requestId,
+              toolName,
+              input,
+              awaitingSenior: true,
+              approvingAgentId: seniorId,
+            });
+            return;
+          }
+        }
+
+        // Escalate to human via ApprovalsBox.
         const { requestId } = this.permissionGate.wait(id);
-        this.emit({ type: 'agentToolPermission', id, requestId });
+        this.emit({
+          type: 'agentToolPermission',
+          id,
+          requestId,
+          toolName,
+          input,
+          awaitingSenior: false,
+        });
         return;
       }
       default:
@@ -407,5 +538,55 @@ export class SpawnedAgentManager {
         // are not consumed by this component yet.
         return;
     }
+  }
+
+  /**
+   * Check if `seniorId`'s message text contains [APPROVE] or [DENY] for a
+   * pending junior-agent permission request. Resolves the gate and emits an
+   * observability event in the facility feed when a valid reply is parsed.
+   */
+  private maybeResolveSeniorApproval(seniorId: number, text: string): void {
+    const pending = this.pendingSeniorApprovals.get(seniorId);
+    if (!pending) return;
+
+    const reply = parseApprovalReply(text);
+    if (!reply) return;
+
+    this.pendingSeniorApprovals.delete(seniorId);
+    const { requestId, requestingAgentId, toolName } = pending;
+
+    this.permissionGate.reply(requestId, reply.approved);
+    const requestingAgent = this.agents.get(requestingAgentId);
+    requestingAgent?.runner?.writeStdin(reply.approved ? 'y\n' : 'n\n');
+    this.emit({ type: 'agentToolPermissionClear', id: requestingAgentId });
+
+    // Facility feed: surface who approved/denied and why.
+    const seniorAgent = this.agents.get(seniorId);
+    const seniorLabel = seniorAgent?.folderName ?? `Worker #${seniorId}`;
+    const juniorLabel = requestingAgent?.folderName ?? `Worker #${requestingAgentId}`;
+    const verb = reply.approved ? 'approved' : 'denied';
+    this.emit({
+      type: 'agentActivity',
+      id: seniorId,
+      kind: 'seniorApproval',
+      text: `${seniorLabel} ${verb} ${juniorLabel}'s \`${toolName}\`: ${reply.reason}`,
+      approved: reply.approved,
+      requestingAgentId,
+      reason: reply.reason,
+    });
+  }
+
+  /**
+   * Snapshot of all owned agents as AgentTierEntry for findSeniorAgent.
+   * An agent is available when its runner is not running and it has no pending
+   * approval request already queued to it.
+   */
+  private buildTierEntries(): AgentTierEntry[] {
+    return [...this.agents.entries()].map(([agentId, a]) => ({
+      id: agentId,
+      tier: a.workerTier,
+      // Available = runner not running AND not already handling a pending approval.
+      isAvailable: !(a.runner?.running ?? false) && !this.pendingSeniorApprovals.has(agentId),
+    }));
   }
 }

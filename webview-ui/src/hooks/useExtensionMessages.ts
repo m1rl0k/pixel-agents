@@ -30,6 +30,13 @@ export interface SubagentCharacter {
   label: string;
 }
 
+
+export interface PendingApproval {
+  requestId: number;
+  agentId: number;
+  arrivedAt: number;
+}
+
 interface FurnitureAsset {
   id: string;
   name: string;
@@ -90,6 +97,12 @@ export interface ExtensionMessageState {
   facilityFeed: FacilityFeedItem[];
   /** Latest permission gate id per agent (OMC permissionReply.requestId). */
   permissionRequestByAgent: Record<number, number>;
+  /** Pending tool-permission approvals across all agents. */
+  pendingApprovals: Map<number, PendingApproval>;
+  /** Live task-tree snapshot from the `taskTree` server WS message. */
+  taskTree: MissionBoardItem[];
+  /** Current permission autonomy level (auto/safe/manual). */
+  autonomyLevel: 'auto' | 'safe' | 'manual';
 }
 
 /** Append an activity item to an agent's capped log, returning a new map. */
@@ -156,6 +169,9 @@ export function useExtensionMessages(
     {},
   );
   const [providerKeysSet, setProviderKeysSet] = useState<Record<string, boolean>>({});
+  const [pendingApprovals, setPendingApprovals] = useState<Map<number, PendingApproval>>(new Map());
+  const [taskTree, setTaskTree] = useState<MissionBoardItem[]>([]);
+  const [autonomyLevel, setAutonomyLevel] = useState<'auto' | 'safe' | 'manual'>('auto');
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -579,6 +595,11 @@ export function useExtensionMessages(
         const requestId = typeof msg.requestId === 'number' ? msg.requestId : undefined;
         if (requestId !== undefined) {
           setPermissionRequestByAgent((prev) => ({ ...prev, [id]: requestId }));
+          setPendingApprovals((prev) => {
+            const next = new Map(prev);
+            next.set(requestId, { requestId, agentId: id, arrivedAt: Date.now() });
+            return next;
+          });
         }
         setAgentTools((prev) => {
           const list = prev[id];
@@ -617,6 +638,11 @@ export function useExtensionMessages(
           };
         });
         os.clearPermissionBubble(id);
+        setPendingApprovals((prev) => {
+          const next = new Map(prev);
+          for (const [k, v] of next) { if (v.agentId === id) next.delete(k); }
+          return next;
+        });
         // Also clear permission bubbles on all sub-agent characters of this parent
         for (const [subId, meta] of os.subagentMeta) {
           if (meta.parentAgentId === id) {
@@ -729,6 +755,14 @@ export function useExtensionMessages(
         if (msg.providerKeysSet && typeof msg.providerKeysSet === 'object') {
           setProviderKeysSet(msg.providerKeysSet as Record<string, boolean>);
         }
+        if (msg.autonomyLevel === 'auto' || msg.autonomyLevel === 'safe' || msg.autonomyLevel === 'manual') {
+          setAutonomyLevel(msg.autonomyLevel);
+        }
+      } else if (msg.type === 'autonomyLevelSet') {
+        const level = msg.level;
+        if (level === 'auto' || level === 'safe' || level === 'manual') {
+          setAutonomyLevel(level);
+        }
       } else if (msg.type === 'providerKeySet') {
         const name = msg.name as string;
         const isSet = msg.isSet as boolean;
@@ -741,12 +775,12 @@ export function useExtensionMessages(
         try {
           const catalog = msg.catalog as FurnitureAsset[];
           const sprites = msg.sprites as Record<string, string[][]>;
-          console.log(`📦 Webview: Loaded ${catalog.length} furniture assets`);
+          console.log(`Webview: Loaded ${catalog.length} furniture assets`);
           // Build dynamic catalog immediately so getCatalogEntry() works when layoutLoaded arrives next
           buildDynamicCatalog({ catalog, sprites });
           setLoadedAssets({ catalog, sprites });
         } catch (err) {
-          console.error(`❌ Webview: Error processing furnitureAssetsLoaded:`, err);
+          console.error('Webview: Error processing furnitureAssetsLoaded:', err);
         }
       } else if (msg.type === 'agentTeamInfo') {
         const id = msg.id as number;
@@ -794,6 +828,8 @@ export function useExtensionMessages(
           os.visitBuildSite(agentId, col, row);
           os.showChatBubble(agentId, label);
         }
+      } else if (msg.type === 'taskTree') {
+        setTaskTree((msg.nodes as import('../components/FacilityBanner.js').MissionBoardItem[]) ?? []);
       } else if (msg.type === 'facilityChat') {
         facilitySocialRef.current = true;
         const fromId = msg.fromId as number;
@@ -845,5 +881,8 @@ export function useExtensionMessages(
     facilityFeed,
     providerKeysSet,
     permissionRequestByAgent,
+    pendingApprovals,
+    taskTree,
+    autonomyLevel,
   };
 }

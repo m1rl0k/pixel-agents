@@ -26,6 +26,9 @@ server/                             — Node daemon (HTTP, WebSocket, hooks, age
                                       home-build phase, dispatch/relay loop, stall detection,
                                       FacilityTaskTree, inter-agent relays
     facilityConstants.ts            — Provider IDs, room/timing constants, env-flag helpers
+    facilityProviders.ts            — Builds the ordered worker roster (Claude stream → Kimi Code →
+                                      Z.ai GLM-5.1 → Z.ai GLM-5 → Cursor); pickWorkerProviderForRoom();
+                                      startup report; PIXEL_AGENTS_CURSOR_WORKERS guard
     facilityStateStore.ts           — Durable facility progress (builtRooms, phase, homeSteps)
     workerFacilityLayout.ts         — Layout builder for the 20-room grid + orchestrator wing
     roomSandbox.ts                  — Per-room workspace dir (~/.pixel-agents/worker-rooms/);
@@ -39,6 +42,13 @@ server/                             — Node daemon (HTTP, WebSocket, hooks, age
       facilityTaskTree.ts           — Task tree: addOperatorGoal/dispatchChild/accept/reject;
                                       mission board; pending-goal queue
       permissionGate.ts             — Blocking permission round-trip (Map<reqId, resolve>)
+      permissionPolicy.ts           — AutonomyLevel (auto/safe/manual), classify(), isDangerInput(),
+                                      DEFAULT_DANGER_PATTERNS (DROP DATABASE/TABLE, TRUNCATE,
+                                      DELETE FROM without WHERE, spacetime delete/publish --clear,
+                                      rm *.db/*.sqlite)
+      agentHierarchy.ts             — WorkerTier (0=human, 1=senior, 2=mid, 3=junior),
+                                      findSeniorAgent() for delegated-approval routing,
+                                      buildApprovalPrompt()/parseApprovalReply()
       stallDetection.ts             — Regex + turn-heuristic stall detection; MAX_STALL_RETRIES
     runner/
       processRunner.ts              — Spawn/write/interrupt/stop subprocess; onStdoutLine/onExit
@@ -58,7 +68,7 @@ server/                             — Node daemon (HTTP, WebSocket, hooks, age
       stream/cursor/cursor.ts       — cursorProvider + cursorFileProvider
       stream/claude/claudeStream.ts — claudeStreamProvider (stream-json owned Claude CLI)
       stream/demo/demo.ts           — demoProvider (token-free Node subprocess)
-      stream/kimi/kimi.ts           — kimiProvider (Kimi K2.6 coding, server-owned NDJSON worker)
+      stream/kimi/kimi.ts           — kimiProvider (Kimi Code, server-owned NDJSON worker)
       stream/zai/zai.ts             — zaiGlmProvider (Z.ai GLM-5.1 coding)
       stream/zai/zai-glm5.ts       — zaiGlm5Provider (Z.ai GLM-5 coding)
     __tests__/                      — Vitest unit tests
@@ -90,8 +100,9 @@ The orchestrator facility starts by default with 4 demo worker rooms.
 | `--port, -p <number>` | Port to listen on (default: `3100`)              |
 | `--host <string>`     | Host to bind to (default: `127.0.0.1`)           |
 | `--workers <number>`  | Worker rooms to build (default: `4`)             |
-| `--orchestrator`      | Start the gamified worker facility (default: on) |
-| `--no-orchestrator`   | Start server without the facility                |
+| `--orchestrator`      | Start the gamified worker facility (default: on)                          |
+| `--no-orchestrator`   | Start server without the facility                                         |
+| `--no-reuse`          | Always bind a fresh port; write `server-<port>.json` (multiple instances) |
 
 ### Environment variables
 
@@ -105,14 +116,17 @@ Pixel Agents loads `.env` from the directory where you start the CLI.
 | `PIXEL_AGENTS_DEMO`            | Register token-free demo stream provider                                                   |
 | `PIXEL_AGENTS_WORKER_SANDBOX`  | `1` to require Docker-backed worker rooms                                                  |
 | `PIXEL_AGENTS_CLAUDE_WORKERS`  | Force Claude stream-json workers on (`1`) or off (`0`); auto-detected from PATH when unset |
+| `PIXEL_AGENTS_CURSOR_WORKERS`  | Force Cursor workers on (`1`) or off (`0`); auto-detected from `cursor-agent` on PATH      |
+| `PIXEL_AGENTS_NO_REUSE`        | `1` (or use `--no-reuse`) to always start a fresh server + write `server-<port>.json`      |
 | `PIXEL_AGENTS_FRESH_FACILITY`  | `1` to reset saved facility progress on boot                                               |
 | `PIXEL_AGENTS_FAST_FACILITY`   | `1` to speed up room build (800ms vs 3500ms)                                               |
 | `PIXEL_AGENTS_DEBUG`           | Enable debug logging                                                                       |
 | `PIXEL_AGENTS_VERSION`         | Version override                                                                           |
-| **Kimi K2.6 worker**           |                                                                                            |
-| `KIMI_API_KEY`                 | Enable Kimi K2.6 coding lane (required)                                                    |
-| `KIMI_API_BASE`                | Custom endpoint (default: `https://api.moonshot.ai/v1/chat/completions`)                   |
-| `KIMI_MODEL`                   | Model override (default: `kimi-k2.6`)                                                      |
+| **Kimi Code worker**           |                                                                                            |
+| `KIMI_CODING_API_KEY`          | Preferred Kimi Code key                                                                    |
+| `KIMI_API_KEY`                 | Backward-compatible Kimi Code key fallback                                                 |
+| `KIMI_CODING_API_BASE`         | Custom endpoint (default: `https://api.kimi.com/coding/v1`)                                |
+| `KIMI_CODING_MODEL`            | Model override (default: `kimi-for-coding`)                                                |
 | `KIMI_SYSTEM_PROMPT`           | System prompt override                                                                     |
 | `KIMI_TEMPERATURE`             | Temperature override                                                                       |
 | **Z.ai GLM-5.1 coding worker** |                                                                                            |
@@ -162,7 +176,7 @@ Pixel Agents loads `.env` from the directory where you start the CLI.
 **OrchestratorManager** — gamified 20-room worker facility:
 
 1. **Building phase** — carves one room every ~3.5 s; spawns a worker per room
-2. **Provider roster** (round-robin, first available): Kimi K2.6 → Z.ai GLM-5.1 (up to 2 lanes) → Z.ai GLM-5 (up to 2 lanes) → Claude stream-json → demo fallback
+2. **Provider roster** (round-robin via `facilityProviders.ts`): Claude stream-json (if on PATH) → Kimi Code → Z.ai GLM-5.1 (up to 2 lanes) → Z.ai GLM-5 (up to 2 lanes) → Cursor (if on PATH); falls back to demo only when `PIXEL_AGENTS_DEMO=1`
 3. **Homemaking phase** — workers build a shared commons (8 steps)
 4. **Operating phase** — periodic dispatch/relay loop: picks `SpacetimeDB` tasks from pool, relays findings between workers, stall-detects with retry
 5. **FacilityTaskTree** — operator goals added via Facility Command dispatch down the task tree
@@ -186,5 +200,26 @@ Pixel Agents loads `.env` from the directory where you start the CLI.
 **Webview ↔ Server**: WebSocket at `/ws`. Assets, layout, and facility progress pushed on `webviewReady`.
 
 **Persistence**: Layout → `~/.pixel-agents/layout.json`. Settings + spawned agent seats → config + standalone-state.json. Facility progress → `~/.pixel-agents/facility-state.json`. Agent memory → `~/.pixel-agents/memory/`.
+
+**Permission & Autonomy model** (`omc/permissionPolicy.ts`, `omc/agentHierarchy.ts`):
+
+| Level | Behaviour |
+|-------|-----------|
+| `auto` (default) | Approve every tool call *except* those matching the danger denylist |
+| `safe` | Approve only read-only tools (Read/Glob/Grep/LS/…); prompt for anything mutating |
+| `manual` | Prompt for every tool call |
+
+Danger denylist (always prompt regardless of level): `DROP DATABASE/TABLE/SCHEMA`, `TRUNCATE`, `DELETE FROM` without `WHERE`, `spacetime delete`, `spacetime publish --clear-database/-c`, `rm *.db/*.sqlite`, `rm .spacetime`.
+
+**Delegated approval** (`agentHierarchy.ts`): when a worker must prompt and a senior is available, the gate routes the approval request to the senior agent rather than interrupting the human. Tiers: `0` human → `1` senior (claude, claude-stream, codex, kimi-k2) → `2` mid (zai-glm-5.1/5, cursor, antigravity) → `3` junior (demo). DB-danger patterns always escalate to human. Self-approval is blocked.
+
+**Security** (`httpServer.ts`):
+- `/ws` — requires `?token=<uuid>` query param (constant-time compare) + rejects non-localhost `Origin` headers
+- `/api/token` — returns the token only to `127.0.0.1`/`::1` callers (SPA bootstrap)
+- `/api/hooks/:providerId` — Bearer token in `Authorization` header
+- `spawnAgent` WS handler — `bypassPermissions` always forced to `false` (never trusted from client); `cwd` clamped to allowed roots via `isAllowedCwd()`
+- **Kimi User-Agent** — Kimi For Coding gates on recognized clients; the daemon automatically sends `User-Agent: claude-cli/1.0.0`. No configuration needed.
+
+**Server isolation** (`server.ts`): by default a second process reuses the running server (detected via `~/.pixel-agents/server.json` PID check). Pass `--port <n>`, `--no-reuse`, or `PIXEL_AGENTS_NO_REUSE=1` to always start a fresh instance that writes `~/.pixel-agents/server-<port>.json` instead — allows multiple isolated instances to coexist (useful for QA parallel runs).
 
 See prior docs in repo history for layout editor, asset pipeline, and hook event details — behavior is unchanged; only the VS Code host was removed.

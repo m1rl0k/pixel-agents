@@ -42,12 +42,15 @@ type HookEventCallback = (providerId: string, event: Record<string, unknown>) =>
  *
  * Discovery: writes `~/.pixel-agents/server.json` with port, PID, and auth token.
  * A second process detects the running server via server.json and reuses it.
+ * When `noReuse` is set, writes `server-<port>.json` instead so multiple instances coexist.
  */
 export class PixelAgentsServer {
   private app: FastifyInstance | null = null;
   private config: ServerConfig | null = null;
   private ownsServer = false;
   private callback: HookEventCallback | null = null;
+  /** Absolute path to the discovery file this instance wrote. */
+  private ownedJsonPath: string | null = null;
 
   /** Register a callback for incoming hook events from any provider. */
   onHookEvent(callback: HookEventCallback): void {
@@ -57,6 +60,10 @@ export class PixelAgentsServer {
   /**
    * Start the server. If another instance is already running (detected via
    * server.json PID check), reuses that server's config without starting a new one.
+   *
+   * Pass `noReuse: true` (set by `--port`/`--no-reuse`/`PIXEL_AGENTS_NO_REUSE=1`) to
+   * always bind a fresh port and write `server-<port>.json` instead of `server.json`,
+   * allowing multiple isolated instances to coexist.
    */
   async start(options?: {
     store?: AgentStateStore;
@@ -69,16 +76,22 @@ export class PixelAgentsServer {
     spawnManager?: SpawnedAgentManager;
     registry?: ProviderRegistry;
     orchestratorRef?: OrchestratorRef;
+    autonomyLevelRef?: { current: import('./omc/permissionPolicy.js').AutonomyLevel };
+    noReuse?: boolean;
   }): Promise<ServerConfig> {
-    // Check if another instance already has a server running
-    const existing = this.readServerJson();
-    if (existing && isProcessRunning(existing.pid)) {
-      this.config = existing;
-      this.ownsServer = false;
-      console.log(
-        `[Pixel Agents] Reusing existing server on port ${existing.port} (PID ${existing.pid})`,
-      );
-      return existing;
+    const noReuse = options?.noReuse ?? false;
+
+    // Check if another instance already has a server running (skipped in noReuse mode)
+    if (!noReuse) {
+      const existing = this.readServerJson();
+      if (existing && isProcessRunning(existing.pid)) {
+        this.config = existing;
+        this.ownsServer = false;
+        console.log(
+          `[Pixel Agents] Reusing existing server on port ${existing.port} (PID ${existing.pid})`,
+        );
+        return existing;
+      }
     }
 
     // Start our own server
@@ -98,6 +111,7 @@ export class PixelAgentsServer {
       spawnManager: options?.spawnManager,
       registry: options?.registry,
       orchestratorRef: options?.orchestratorRef,
+      autonomyLevelRef: options?.autonomyLevelRef,
     });
 
     this.app = app;
@@ -108,23 +122,31 @@ export class PixelAgentsServer {
       startedAt: Date.now(),
     };
     this.ownsServer = true;
-    this.writeServerJson(this.config);
-    console.log(`[Pixel Agents] Server: listening on 127.0.0.1:${port}`);
+
+    // In noReuse mode write server-<port>.json so multiple instances coexist.
+    const jsonName = noReuse ? `server-${port}.json` : SERVER_JSON_NAME;
+    const jsonPath = path.join(os.homedir(), SERVER_JSON_DIR, jsonName);
+    this.ownedJsonPath = jsonPath;
+    this.writeServerJsonTo(jsonPath, this.config);
+
+    const label = noReuse ? ` (isolated, port ${port})` : '';
+    console.log(`[Pixel Agents] Server: listening on 127.0.0.1:${port}${label}`);
 
     return this.config;
   }
 
-  /** Stop the server and clean up server.json (only if we own it). */
+  /** Stop the server and clean up discovery file (only if we own it). */
   stop(): void {
     if (this.app) {
       this.app.close();
       this.app = null;
     }
-    if (this.ownsServer) {
-      this.deleteServerJson();
+    if (this.ownsServer && this.ownedJsonPath) {
+      this.deleteServerJsonAt(this.ownedJsonPath);
     }
     this.config = null;
     this.ownsServer = false;
+    this.ownedJsonPath = null;
   }
 
   /** Returns the current server config, or null if not started. */
@@ -132,7 +154,7 @@ export class PixelAgentsServer {
     return this.config;
   }
 
-  /** Returns the absolute path to ~/.pixel-agents/server.json. */
+  /** Returns the absolute path to ~/.pixel-agents/server.json (canonical). */
   private getServerJsonPath(): string {
     return path.join(os.homedir(), SERVER_JSON_DIR, SERVER_JSON_NAME);
   }
@@ -148,9 +170,8 @@ export class PixelAgentsServer {
     }
   }
 
-  /** Write server.json atomically (tmp + rename) with mode 0o600. */
-  private writeServerJson(config: ServerConfig): void {
-    const filePath = this.getServerJsonPath();
+  /** Write a discovery JSON file atomically (tmp + rename) with mode 0o600. */
+  private writeServerJsonTo(filePath: string, config: ServerConfig): void {
     const dir = path.dirname(filePath);
     try {
       if (!fs.existsSync(dir)) {
@@ -160,14 +181,13 @@ export class PixelAgentsServer {
       fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
       fs.renameSync(tmpPath, filePath);
     } catch (e) {
-      console.error(`[Pixel Agents] Failed to write server.json: ${e}`);
+      console.error(`[Pixel Agents] Failed to write ${path.basename(filePath)}: ${e}`);
     }
   }
 
-  /** Delete server.json only if the PID inside matches our process (safe for multi-window). */
-  private deleteServerJson(): void {
+  /** Delete a discovery JSON file only if the PID inside matches our process. */
+  private deleteServerJsonAt(filePath: string): void {
     try {
-      const filePath = this.getServerJsonPath();
       if (!fs.existsSync(filePath)) return;
       const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ServerConfig;
       if (existing.pid === process.pid) {

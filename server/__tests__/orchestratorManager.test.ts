@@ -7,7 +7,6 @@ import {
   KIMI_WORKER_PROVIDER_ID,
   RELAY_MIN_MS,
   ROOM_BUILD_INTERVAL_MS,
-  WORKER_PROVIDER_ID,
   ZAI_WORKER_PROVIDER_ID,
 } from '../src/facilityConstants.js';
 import { OrchestratorManager } from '../src/orchestratorManager.js';
@@ -19,11 +18,16 @@ vi.mock('../src/roomSandbox.js', () => ({
 }));
 
 const PROVIDER_ENV_KEYS = [
+  'KIMI_CODING_API_KEY',
   'KIMI_API_KEY',
   'ZAI_GLM_5_1_CODING_API_KEY',
   'ZAI_GLM_5_1_CODING_API_KEY_1',
   'ZAI_GLM_5_1_CODING_API_KEY_2',
   'PIXEL_AGENTS_CLAUDE_WORKERS',
+  'PIXEL_AGENTS_CURSOR_WORKERS',
+  'PIXEL_AGENTS_KIMI_WORKERS',
+  'PIXEL_AGENTS_CODEX_WORKERS',
+  'PIXEL_AGENTS_DEMO',
 ] as const;
 
 const ORIGINAL_PROVIDER_ENV = Object.fromEntries(
@@ -74,6 +78,10 @@ describe('OrchestratorManager', () => {
     vi.useFakeTimers();
     clearProviderEnv();
     process.env.PIXEL_AGENTS_CLAUDE_WORKERS = '0';
+    process.env.PIXEL_AGENTS_CURSOR_WORKERS = '0';
+    process.env.PIXEL_AGENTS_KIMI_WORKERS = '0';
+    process.env.PIXEL_AGENTS_CODEX_WORKERS = '0';
+    process.env.PIXEL_AGENTS_DEMO = '1';
   });
 
   afterEach(() => {
@@ -216,7 +224,7 @@ describe('OrchestratorManager', () => {
     }
 
     expect(manager.spawn.mock.calls.map(([opts]) => opts.providerId)).toEqual([
-      WORKER_PROVIDER_ID,
+      KIMI_WORKER_PROVIDER_ID,
       KIMI_WORKER_PROVIDER_ID,
       ZAI_WORKER_PROVIDER_ID,
       ZAI_WORKER_PROVIDER_ID,
@@ -231,7 +239,7 @@ describe('OrchestratorManager', () => {
       expect.arrayContaining([
         expect.objectContaining({
           workerId: 2,
-          prompt: expect.stringContaining('Provider lane: Kimi K2.6 coding lane'),
+          prompt: expect.stringContaining('Provider lane: Kimi Code lane'),
         }),
         expect.objectContaining({
           workerId: 3,
@@ -243,7 +251,7 @@ describe('OrchestratorManager', () => {
         }),
         expect.objectContaining({
           workerId: 5,
-          prompt: expect.stringContaining('Provider lane: Kimi K2.6 coding lane'),
+          prompt: expect.stringContaining('Provider lane: Kimi Code lane'),
         }),
       ]),
     );

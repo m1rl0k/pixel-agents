@@ -10,12 +10,12 @@ const HOOK_SCRIPT = path.join(__dirname, '../../dist/hooks/claude-hook.js');
 // Isolated temp HOME
 let tmpBase: string;
 
-function writeServerJson(port: number, token: string): void {
+function writeServerJson(port: number, token: string, fileName = 'server.json', startedAt = Date.now()): void {
   const dir = path.join(tmpBase, '.pixel-agents');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
-    path.join(dir, 'server.json'),
-    JSON.stringify({ port, pid: process.pid, token, startedAt: Date.now() }),
+    path.join(dir, fileName),
+    JSON.stringify({ port, pid: process.pid, token, startedAt }),
   );
 }
 
@@ -82,6 +82,44 @@ describe('claude-hook.js integration', () => {
     expect(code).toBe(0);
     expect(received).toHaveLength(1);
     expect(JSON.parse(received[0]).session_id).toBe('abc');
+  });
+
+  it('prefers the newest live port-specific server file', async () => {
+    skipIfNotBuilt();
+    if (!fs.existsSync(HOOK_SCRIPT)) return;
+
+    const staleServer = http.createServer((_req, res) => {
+      res.writeHead(500);
+      res.end('stale');
+    });
+    const activeRequests: string[] = [];
+    const activeServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c.toString()));
+      req.on('end', () => {
+        activeRequests.push(body);
+        res.writeHead(200);
+        res.end('ok');
+      });
+    });
+
+    await new Promise<void>((r) => staleServer.listen(0, '127.0.0.1', r));
+    await new Promise<void>((r) => activeServer.listen(0, '127.0.0.1', r));
+    const stalePort = (staleServer.address() as { port: number }).port;
+    const activePort = (activeServer.address() as { port: number }).port;
+
+    writeServerJson(stalePort, 'stale-token', 'server.json', 1);
+    writeServerJson(activePort, 'active-token', `server-${activePort}.json`, 2);
+
+    const { code } = await runHookScript(
+      JSON.stringify({ session_id: 'active', hook_event_name: 'Stop' }),
+    );
+
+    staleServer.close();
+    activeServer.close();
+    expect(code).toBe(0);
+    expect(activeRequests).toHaveLength(1);
+    expect(JSON.parse(activeRequests[0]).session_id).toBe('active');
   });
 
   // 2. Script exits 0 on missing server.json

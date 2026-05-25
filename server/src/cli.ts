@@ -23,7 +23,12 @@ import {
 } from './assetLoader.js';
 import type { AssetCache } from './clientMessageHandler.js';
 import type { OrchestratorRef } from './clientMessageHandler.js';
+import { applyProviderKeysToEnv, readAutonomyLevel } from './configPersistence.js';
 import { DEFAULT_DEMO_WORKERS } from './facilityConstants.js';
+import {
+  buildFacilityProviderStartupReport,
+  formatFacilityStartupMessage,
+} from './facilityProviders.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
 import { OrchestratorManager } from './orchestratorManager.js';
 import { claudeProvider, copyHookScript, createDefaultRegistry } from './providers/index.js';
@@ -57,6 +62,12 @@ interface CliArgs {
   host: string;
   orchestrator: boolean;
   workers: number;
+  /**
+   * When true, skip single-instance reuse even if server.json indicates a live server.
+   * Automatically set when --port/-p is explicitly provided, or via --no-reuse /
+   * PIXEL_AGENTS_NO_REUSE=1 env var. Writes server-<port>.json for coexistence.
+   */
+  noReuse: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -65,10 +76,12 @@ function parseArgs(argv: string[]): CliArgs {
     host: '127.0.0.1',
     orchestrator: process.env.PIXEL_AGENTS_ORCHESTRATOR !== '0',
     workers: Number(process.env.PIXEL_AGENTS_WORKERS ?? String(DEFAULT_DEMO_WORKERS)),
+    noReuse: process.env.PIXEL_AGENTS_NO_REUSE === '1',
   };
   for (let i = 0; i < argv.length; i++) {
     if ((argv[i] === '--port' || argv[i] === '-p') && argv[i + 1]) {
       args.port = parseInt(argv[i + 1], 10);
+      args.noReuse = true; // explicit port → always fresh instance
       i++;
     } else if (argv[i] === '--host' && argv[i + 1]) {
       args.host = argv[i + 1];
@@ -80,6 +93,8 @@ function parseArgs(argv: string[]): CliArgs {
       args.orchestrator = true;
     } else if (argv[i] === '--no-orchestrator') {
       args.orchestrator = false;
+    } else if (argv[i] === '--no-reuse') {
+      args.noReuse = true;
     } else if (argv[i] === '--help') {
       console.log(`Usage: pixel-agents [options]
 
@@ -89,7 +104,11 @@ Options:
   --workers <number>    Worker rooms to build (default: ${DEFAULT_DEMO_WORKERS})
   --no-orchestrator     Start the server without the gamified worker facility
   --orchestrator        Start the gamified worker facility
-  --help                Show this help message`);
+  --no-reuse            Always start a fresh server, ignore existing server.json
+  --help                Show this help message
+
+Environment variables:
+  PIXEL_AGENTS_NO_REUSE=1   Same as --no-reuse (useful for QA test runs)`);
       process.exit(0);
     }
   }
@@ -103,6 +122,7 @@ Options:
 
 async function main(): Promise<void> {
   loadDotEnv(process.cwd());
+  applyProviderKeysToEnv();
   const args = parseArgs(process.argv.slice(2));
 
   // dist/ contains both the CLI bundle and the assets/ + webview/ directories
@@ -134,6 +154,20 @@ async function main(): Promise<void> {
 
   process.env.PIXEL_AGENTS_ORCHESTRATOR = args.orchestrator ? '1' : '0';
 
+  if (args.orchestrator) {
+    const facilityReport = buildFacilityProviderStartupReport();
+    console.log(`[Pixel Agents] ${formatFacilityStartupMessage(facilityReport)}`);
+    if (facilityReport.roster.length === 0 && !facilityReport.usingDemo) {
+      console.error(
+        '[Pixel Agents] Facility requires at least one real worker provider.\n' +
+          '  • Add KIMI_CODING_API_KEY or ZAI_GLM_*_CODING_API_KEY* to .env or ~/.pixel-agents/config.json\n' +
+          '  • Or install `claude` / `cursor-agent` on your PATH\n' +
+          '  • Simulation only: PIXEL_AGENTS_DEMO=1\n',
+      );
+      process.exit(1);
+    }
+  }
+
   // ── Provider registry + spawned-agent manager (daemon owns + sandboxes CLIs) ──
   const registry = createDefaultRegistry();
   const orchestratorRef: OrchestratorRef = { current: null };
@@ -142,6 +176,10 @@ async function main(): Promise<void> {
     emit: (m) => store.broadcast(m),
     allocateId: () => store.nextAgentId.current++,
     memory: memoryStore,
+    getAutonomyLevel: () => readAutonomyLevel(),
+    onWorkerFailed: (id, reason) => {
+      orchestratorRef.current?.handleWorkerProviderFailed(id, reason);
+    },
     onAgentEvent: (id, ev) => {
       orchestratorRef.current?.handleAgentEvent(id, ev);
       // Persist every agent event to durable history, keyed by stable session id.
@@ -199,6 +237,7 @@ async function main(): Promise<void> {
       spawnManager,
       registry,
       orchestratorRef,
+      noReuse: args.noReuse,
     });
     currentConfig = { port: config.port, token: config.token };
 
@@ -228,8 +267,8 @@ async function main(): Promise<void> {
       runtime.startStaleCheck();
     }
 
-    // Boot the gamified orchestrator facility by default. Worker rooms use the
-    // configured coding providers first (Kimi/Z.ai), then demo lanes as fallback.
+    // Boot the gamified orchestrator facility by default. Worker rooms use every
+    // configured real provider lane, then demo only as an explicit fallback.
     let orchestrator: OrchestratorManager | null = null;
     if (args.orchestrator) {
       orchestrator = new OrchestratorManager({
@@ -243,7 +282,7 @@ async function main(): Promise<void> {
       void orchestrator.start({ workerCount, cwd });
       console.log(`[Pixel Agents] Orchestrator facility starting (leader + ${workerCount} rooms)`);
       console.log(
-        '[Pixel Agents] Provider roster: Kimi K2.6 first when configured, then two Z.ai GLM-5.1 coding lanes, then demo lanes',
+        '[Pixel Agents] Worker roster cycles every configured lane across rooms; use --workers/PIXEL_AGENTS_WORKERS to narrow it.',
       );
       console.log(
         '[Pixel Agents] Tip: PIXEL_AGENTS_FRESH_FACILITY=1 resets saved progress; PIXEL_AGENTS_FAST_FACILITY=1 speeds room build',

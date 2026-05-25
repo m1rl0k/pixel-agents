@@ -20,6 +20,7 @@ import {
 } from '../../constants.js';
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
 import type { ProviderInfo } from '../../interaction/messages.js';
+import { resolveProviderDisplayName } from '../../providerDisplay.js';
 import type { OfficeState } from '../engine/officeState.js';
 import type { ToolActivity } from '../types.js';
 import { CharacterState, TILE_SIZE } from '../types.js';
@@ -166,13 +167,10 @@ export function ToolOverlay({
 
         // Provider badge (non-subagents only)
         const overlayProviderId = !isSub && agentProviders ? agentProviders[id] : undefined;
-        const overlayProviderEntry =
-          overlayProviderId && providers
-            ? providers.find((p) => p.id === overlayProviderId)
-            : undefined;
-        const providerBadge = overlayProviderEntry
-          ? overlayProviderEntry.displayName
-          : overlayProviderId;
+        const providerBadge = resolveProviderDisplayName(
+          overlayProviderId,
+          providers ?? [],
+        );
 
         return (
           <div

@@ -4,24 +4,60 @@ import type { MessageTransport } from './types.js';
  * WebSocket transport for standalone browser mode.
  * Connects to the Pixel Agents server via WebSocket for bidirectional messaging.
  * Includes automatic reconnection with exponential backoff and message queuing.
+ *
+ * The `/ws` endpoint is token-gated (drive-by-RCE protection): before opening the
+ * socket we fetch the discovery token from the localhost-only `/api/token` endpoint
+ * and pass it as `?token=`. The server closes the socket with 1008 if the token is
+ * missing/wrong, so without this the SPA could never connect.
  */
 export class WebSocketTransport implements MessageTransport {
   private ws: WebSocket | null = null;
   private handlers: Array<(msg: object) => void> = [];
   private url: string;
+  private tokenUrl: string | null;
+  private cachedToken: string | null = null;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private pendingMessages: object[] = [];
 
-  constructor(url: string) {
+  constructor(url: string, tokenUrl?: string) {
     this.url = url;
+    this.tokenUrl = tokenUrl ?? null;
   }
 
   connect(): void {
     if (this.disposed) return;
+    void this.openWithToken();
+  }
 
-    this.ws = new WebSocket(this.url);
+  /** Fetch the auth token (if configured), then open the socket with `?token=`. */
+  private async openWithToken(): Promise<void> {
+    if (this.disposed) return;
+
+    let url = this.url;
+    if (this.tokenUrl) {
+      try {
+        if (!this.cachedToken) {
+          const res = await fetch(this.tokenUrl, { credentials: 'same-origin' });
+          if (res.ok) {
+            const data = (await res.json()) as { token?: string };
+            this.cachedToken = data.token ?? null;
+          }
+        }
+        if (this.cachedToken) {
+          const sep = this.url.includes('?') ? '&' : '?';
+          url = `${this.url}${sep}token=${encodeURIComponent(this.cachedToken)}`;
+        }
+      } catch {
+        // Token fetch failed (e.g. older token-less server). Fall back to the
+        // bare URL; if the server requires a token it will close 1008 and we
+        // retry (clearing the cached token) on the next reconnect.
+      }
+    }
+
+    if (this.disposed) return;
+    this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
@@ -82,6 +118,9 @@ export class WebSocketTransport implements MessageTransport {
   }
 
   private scheduleReconnect(): void {
+    // Drop the cached token so a server restart (which rotates the token) is
+    // picked up by re-fetching `/api/token` on the next attempt.
+    this.cachedToken = null;
     // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 30000);
     this.reconnectAttempts++;
