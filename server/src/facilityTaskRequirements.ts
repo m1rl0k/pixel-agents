@@ -17,7 +17,9 @@ import {
   ZAI_GLM5_WORKER_PROVIDER_ID,
   ZAI_WORKER_PROVIDER_ID,
 } from './facilityConstants.js';
-import { CURSOR_WORKER_PROVIDER_ID } from './facilityProviders.js';
+
+/** Cursor stream-json worker id (also exported from facilityProviders). */
+const CURSOR_WORKER_PROVIDER_ID = 'cursor';
 
 /** Providers that run against the repo via owned CLI / workspace tools. */
 const SELF_MAINTAIN_CAPABLE_PROVIDER_IDS = new Set<string>([
