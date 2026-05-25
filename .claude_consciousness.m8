@@ -1,6 +1,6 @@
 {
   "session_id": "e32b30b5-535b-471f-8f93-ef299e9dc21b",
-  "last_saved": "2026-05-25T03:32:28.369624Z",
+  "last_saved": "2026-05-25T12:55:02.638037Z",
   "working_directory": "/Users/mirlok/Desktop/pixel-agents",
   "project_context": {
     "project_name": "unknown",
@@ -12,9 +12,9 @@
   "file_history": [],
   "tokenization_rules": {
     "dist": 131,
-    "target": 130,
     ".git": 129,
-    "node_modules": 128
+    "node_modules": 128,
+    "target": 130
   },
   "insights": [],
   "philosophy": {
