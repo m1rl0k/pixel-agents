@@ -1,4 +1,10 @@
 import {
+  FACILITY_SEAT_REST_MAX_SEC,
+  FACILITY_SEAT_REST_MIN_SEC,
+  FACILITY_WANDER_MOVES_MAX,
+  FACILITY_WANDER_MOVES_MIN,
+  FACILITY_WANDER_PAUSE_MAX_SEC,
+  FACILITY_WANDER_PAUSE_MIN_SEC,
   SEAT_REST_MAX_SEC,
   SEAT_REST_MIN_SEC,
   TYPE_FRAME_DURATION_SEC,
@@ -76,7 +82,12 @@ export function createCharacter(
     isActive: true,
     seatId,
     bubbleType: null,
+    bubbleText: null,
     bubbleTimer: 0,
+    socialRoam: false,
+    visitTargetId: null,
+    visitTileCol: null,
+    visitTileRow: null,
     seatTimer: 0,
     isSubagent: false,
     parentAgentId: null,
@@ -114,9 +125,13 @@ export function updateCharacter(
         ch.state = CharacterState.IDLE;
         ch.frame = 0;
         ch.frameTimer = 0;
-        ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+        ch.wanderTimer = ch.socialRoam
+          ? randomRange(FACILITY_WANDER_PAUSE_MIN_SEC, FACILITY_WANDER_PAUSE_MAX_SEC)
+          : randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
         ch.wanderCount = 0;
-        ch.wanderLimit = randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
+        ch.wanderLimit = ch.socialRoam
+          ? randomInt(FACILITY_WANDER_MOVES_MIN, FACILITY_WANDER_MOVES_MAX)
+          : randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
       }
       break;
     }
@@ -125,10 +140,10 @@ export function updateCharacter(
       // No idle animation — static pose
       ch.frame = 0;
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
-      // If became active, pathfind to seat
+      // If became active, pathfind to seat (unless roaming freely in the facility)
       if (ch.isActive) {
-        if (!ch.seatId) {
-          // No seat assigned — type in place
+        if (ch.socialRoam || !ch.seatId) {
+          ch.visitTargetId = null;
           ch.state = CharacterState.TYPE;
           ch.frame = 0;
           ch.frameTimer = 0;
@@ -163,9 +178,10 @@ export function updateCharacter(
       // Countdown wander timer
       ch.wanderTimer -= dt;
       if (ch.wanderTimer <= 0) {
-        // Check if we've wandered enough — return to seat for a rest
-        if (ch.wanderCount >= ch.wanderLimit && ch.seatId) {
-          const seat = seats.get(ch.seatId);
+        // Social roam: optional brief desk visit, otherwise keep exploring corridors
+        const restAtDesk = ch.wanderCount >= ch.wanderLimit && ch.seatId;
+        if (restAtDesk && !(ch.socialRoam && Math.random() < 0.35)) {
+          const seat = seats.get(ch.seatId!);
           if (seat) {
             const path = findPath(
               ch.tileCol,
@@ -204,7 +220,9 @@ export function updateCharacter(
             ch.wanderCount++;
           }
         }
-        ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+        ch.wanderTimer = ch.socialRoam
+          ? randomRange(FACILITY_WANDER_PAUSE_MIN_SEC, FACILITY_WANDER_PAUSE_MAX_SEC)
+          : randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
       }
       break;
     }
@@ -247,20 +265,23 @@ export function updateCharacter(
               if (ch.seatTimer < 0) {
                 ch.seatTimer = 0;
               } else {
-                ch.seatTimer = randomRange(SEAT_REST_MIN_SEC, SEAT_REST_MAX_SEC);
+                ch.seatTimer = ch.socialRoam
+                  ? randomRange(FACILITY_SEAT_REST_MIN_SEC, FACILITY_SEAT_REST_MAX_SEC)
+                  : randomRange(SEAT_REST_MIN_SEC, SEAT_REST_MAX_SEC);
               }
               ch.wanderCount = 0;
-              ch.wanderLimit = randomInt(
-                WANDER_MOVES_BEFORE_REST_MIN,
-                WANDER_MOVES_BEFORE_REST_MAX,
-              );
+              ch.wanderLimit = ch.socialRoam
+                ? randomInt(FACILITY_WANDER_MOVES_MIN, FACILITY_WANDER_MOVES_MAX)
+                : randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
               ch.frame = 0;
               ch.frameTimer = 0;
               break;
             }
           }
           ch.state = CharacterState.IDLE;
-          ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+          ch.wanderTimer = ch.socialRoam
+            ? randomRange(FACILITY_WANDER_PAUSE_MIN_SEC, FACILITY_WANDER_PAUSE_MAX_SEC)
+            : randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
         }
         ch.frame = 0;
         ch.frameTimer = 0;
@@ -289,8 +310,8 @@ export function updateCharacter(
         ch.moveProgress = 0;
       }
 
-      // If became active while wandering, repath to seat
-      if (ch.isActive && ch.seatId) {
+      // If became active while wandering, repath to seat (desk-bound agents only)
+      if (ch.isActive && ch.seatId && !ch.socialRoam) {
         const seat = seats.get(ch.seatId);
         if (seat) {
           const lastStep = ch.path[ch.path.length - 1];

@@ -7,7 +7,11 @@ import Fastify from 'fastify';
 
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import type { AssetCache, SetHooksEnabledSideEffect } from './clientMessageHandler.js';
+import type {
+  AssetCache,
+  OrchestratorRef,
+  SetHooksEnabledSideEffect,
+} from './clientMessageHandler.js';
 import { handleClientMessage } from './clientMessageHandler.js';
 import { HOOK_API_PREFIX, MAX_HOOK_BODY_SIZE } from './constants.js';
 import type { ProviderRegistry } from './providers/registry.js';
@@ -38,6 +42,7 @@ export interface HttpServerOptions {
   spawnManager?: SpawnedAgentManager;
   /** Provider registry (exposes the spawnable provider list to the webview). */
   registry?: ProviderRegistry;
+  orchestratorRef?: OrchestratorRef;
 }
 
 /** Result of createHttpServer(). */
@@ -135,8 +140,8 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
 // ── WebSocket ──────────────────────────────────────────────────
 
 function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions): void {
-  app.get('/ws', { websocket: true }, (socket, request) => {
-    void request;
+  app.get('/ws', { websocket: true }, (socket, _request) => {
+    const { store } = options;
 
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {
@@ -169,7 +174,7 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
     socket.on('message', (data: Buffer | string) => {
       try {
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-        if (!options.embedded && msg.type) {
+        if (msg.type) {
           console.log('[Pixel Agents] WS client message:', msg.type);
         }
         handleClientMessage(msg, (m) => safeSend(socket, m), {
@@ -179,6 +184,7 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
           onSetHooksEnabled: options.onSetHooksEnabled,
           spawnManager: options.spawnManager,
           registry: options.registry,
+          orchestratorRef: options.orchestratorRef,
         });
       } catch {
         // Malformed JSON, ignore

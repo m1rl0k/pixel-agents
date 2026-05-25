@@ -5,6 +5,10 @@ import {
   CHARACTER_HIT_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
   DISMISS_BUBBLE_FAST_FADE_SEC,
+  FACILITY_CHAT_BUBBLE_MAX_CHARS,
+  FACILITY_CHAT_BUBBLE_SEC,
+  FACILITY_WANDER_MOVES_MAX,
+  FACILITY_WANDER_MOVES_MIN,
   FURNITURE_ANIM_INTERVAL_SEC,
   HUE_SHIFT_MIN_DEG,
   HUE_SHIFT_RANGE_DEG,
@@ -46,6 +50,11 @@ export class OfficeState {
   furnitureAnimTimer = 0;
   selectedAgentId: number | null = null;
   cameraFollowId: number | null = null;
+  /** When set, camera centers on this tile (e.g. home commons build site). */
+  cameraFollowTileCol: number | null = null;
+  cameraFollowTileRow: number | null = null;
+  /** When true, facility events auto-pan the camera to active agents. */
+  facilityWatchMode = true;
   hoveredAgentId: number | null = null;
   hoveredTile: { col: number; row: number } | null = null;
   /** Maps "parentId:toolId" → sub-agent character ID (negative) */
@@ -53,6 +62,7 @@ export class OfficeState {
   /** Reverse lookup: sub-agent character ID → parent info */
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map();
   private nextSubagentId = -1;
+  newFurnitureTimers: Map<string, number> = new Map();
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
@@ -66,6 +76,16 @@ export class OfficeState {
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
    *  @param shift Optional pixel shift to apply when grid expands left/up */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
+    // Track newly added furniture to trigger matrix spawn effect!
+    if (this.layout && this.layout.furniture) {
+      const oldUids = new Set(this.layout.furniture.map((f) => f.uid));
+      for (const item of layout.furniture) {
+        if (!oldUids.has(item.uid)) {
+          this.newFurnitureTimers.set(item.uid, 0.4); // 0.4s spawn timer
+        }
+      }
+    }
+
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
@@ -267,6 +287,7 @@ export class OfficeState {
     preferredSeatId?: string,
     skipSpawnEffect?: boolean,
     folderName?: string,
+    socialRoam?: boolean,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -313,6 +334,13 @@ export class OfficeState {
 
     if (folderName) {
       ch.folderName = folderName;
+    }
+    if (socialRoam) {
+      ch.socialRoam = true;
+      ch.wanderLimit =
+        FACILITY_WANDER_MOVES_MIN +
+        Math.floor(Math.random() * (FACILITY_WANDER_MOVES_MAX - FACILITY_WANDER_MOVES_MIN + 1));
+      ch.wanderTimer = 0.2 + Math.random() * 0.8;
     }
     if (!skipSpawnEffect) {
       ch.matrixEffect = 'spawn';
@@ -563,13 +591,153 @@ export class OfficeState {
     if (ch) {
       ch.isActive = active;
       if (!active) {
-        // Sentinel -1: signals turn just ended, skip next seat rest timer.
-        // Prevents the WALK handler from setting a 2-4 min rest on arrival.
         ch.seatTimer = -1;
         ch.path = [];
         ch.moveProgress = 0;
+        if (ch.socialRoam) {
+          ch.visitTargetId = null;
+          ch.visitTileCol = null;
+          ch.visitTileRow = null;
+        }
       }
       this.rebuildFurnitureInstances();
+    }
+  }
+
+  /** Facility workers roam the browser office — sandbox is the browser, not the chair. */
+  setSocialRoam(id: number, enabled: boolean): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    ch.socialRoam = enabled;
+    if (enabled) {
+      ch.wanderLimit =
+        FACILITY_WANDER_MOVES_MIN +
+        Math.floor(Math.random() * (FACILITY_WANDER_MOVES_MAX - FACILITY_WANDER_MOVES_MIN + 1));
+      ch.wanderCount = 0;
+      if (ch.state === CharacterState.TYPE && !ch.isActive) {
+        ch.state = CharacterState.IDLE;
+        ch.wanderTimer = 0.5;
+      }
+    }
+  }
+
+  /** Speech bubble for inter-agent facility chat. */
+  showChatBubble(id: number, text: string, durationSec = FACILITY_CHAT_BUBBLE_SEC): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    ch.bubbleType = 'chat';
+    ch.bubbleText =
+      trimmed.length > FACILITY_CHAT_BUBBLE_MAX_CHARS
+        ? `${trimmed.slice(0, FACILITY_CHAT_BUBBLE_MAX_CHARS - 1)}…`
+        : trimmed;
+    ch.bubbleTimer = durationSec;
+  }
+
+  /** Walk toward another agent to collaborate in the hallway. */
+  visitAgent(walkerId: number, targetId: number): void {
+    const walker = this.characters.get(walkerId);
+    const target = this.characters.get(targetId);
+    if (!walker || !target || walkerId === targetId) return;
+    walker.visitTargetId = targetId;
+    walker.visitTileCol = null;
+    walker.visitTileRow = null;
+    walker.wanderTimer = 0;
+    if (!walker.isActive && walker.state === CharacterState.TYPE) {
+      walker.state = CharacterState.IDLE;
+    }
+  }
+
+  /** Walk toward a build site tile (shared home commons). */
+  visitBuildSite(walkerId: number, col: number, row: number): void {
+    const walker = this.characters.get(walkerId);
+    if (!walker) return;
+    walker.visitTileCol = col;
+    walker.visitTileRow = row;
+    walker.visitTargetId = null;
+    walker.wanderTimer = 0;
+    if (!walker.isActive && walker.state === CharacterState.TYPE) {
+      walker.state = CharacterState.IDLE;
+    }
+  }
+
+  /** Pan camera to an agent and optionally a build-site tile. */
+  setCameraFocus(agentId: number | null, tileCol?: number, tileRow?: number): void {
+    this.cameraFollowId = agentId;
+    if (tileCol !== undefined && tileRow !== undefined) {
+      this.cameraFollowTileCol = tileCol;
+      this.cameraFollowTileRow = tileRow;
+    } else if (agentId !== null) {
+      this.cameraFollowTileCol = null;
+      this.cameraFollowTileRow = null;
+    }
+  }
+
+  private tickVisitTargets(): void {
+    for (const ch of this.characters.values()) {
+      if (ch.isActive) continue;
+
+      if (ch.visitTileCol !== null && ch.visitTileRow !== null) {
+        const dist =
+          Math.abs(ch.tileCol - ch.visitTileCol) + Math.abs(ch.tileRow - ch.visitTileRow);
+        if (dist <= 1) {
+          ch.visitTileCol = null;
+          ch.visitTileRow = null;
+          ch.wanderTimer = 1.5 + Math.random() * 1.5;
+          continue;
+        }
+        if (ch.state !== CharacterState.IDLE || ch.path.length > 0 || ch.wanderTimer > 0) {
+          continue;
+        }
+        const path = findPath(
+          ch.tileCol,
+          ch.tileRow,
+          ch.visitTileCol,
+          ch.visitTileRow,
+          this.tileMap,
+          this.blockedTiles,
+        );
+        if (path.length > 0) {
+          ch.path = path;
+          ch.moveProgress = 0;
+          ch.state = CharacterState.WALK;
+          ch.frame = 0;
+          ch.frameTimer = 0;
+        }
+        continue;
+      }
+
+      if (ch.visitTargetId === null) continue;
+      const target = this.characters.get(ch.visitTargetId);
+      if (!target) {
+        ch.visitTargetId = null;
+        continue;
+      }
+      const dist = Math.abs(ch.tileCol - target.tileCol) + Math.abs(ch.tileRow - target.tileRow);
+      if (dist <= 1) {
+        ch.visitTargetId = null;
+        ch.wanderTimer = 1.2 + Math.random() * 1.3;
+        continue;
+      }
+      if (ch.state !== CharacterState.IDLE || ch.path.length > 0 || ch.wanderTimer > 0) {
+        continue;
+      }
+      const path = findPath(
+        ch.tileCol,
+        ch.tileRow,
+        target.tileCol,
+        target.tileRow,
+        this.tileMap,
+        this.blockedTiles,
+      );
+      if (path.length > 0) {
+        ch.path = path;
+        ch.moveProgress = 0;
+        ch.state = CharacterState.WALK;
+        ch.frame = 0;
+        ch.frameTimer = 0;
+      }
     }
   }
 
@@ -652,6 +820,7 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (ch) {
       ch.bubbleType = 'permission';
+      ch.bubbleText = null;
       ch.bubbleTimer = 0;
     }
   }
@@ -660,6 +829,7 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (ch && ch.bubbleType === 'permission') {
       ch.bubbleType = null;
+      ch.bubbleText = null;
       ch.bubbleTimer = 0;
     }
   }
@@ -668,6 +838,7 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (ch) {
       ch.bubbleType = 'waiting';
+      ch.bubbleText = null;
       ch.bubbleTimer = WAITING_BUBBLE_DURATION_SEC;
     }
   }
@@ -678,8 +849,9 @@ export class OfficeState {
     if (!ch || !ch.bubbleType) return;
     if (ch.bubbleType === 'permission') {
       ch.bubbleType = null;
+      ch.bubbleText = null;
       ch.bubbleTimer = 0;
-    } else if (ch.bubbleType === 'waiting') {
+    } else if (ch.bubbleType === 'waiting' || ch.bubbleType === 'chat') {
       // Trigger immediate fade (0.3s remaining)
       ch.bubbleTimer = Math.min(ch.bubbleTimer, DISMISS_BUBBLE_FAST_FADE_SEC);
     }
@@ -712,6 +884,16 @@ export class OfficeState {
   }
 
   update(dt: number): void {
+    // Tick newly added furniture matrix spawn timers
+    for (const [uid, timer] of this.newFurnitureTimers.entries()) {
+      const next = timer - dt;
+      if (next <= 0) {
+        this.newFurnitureTimers.delete(uid);
+      } else {
+        this.newFurnitureTimers.set(uid, next);
+      }
+    }
+
     // Furniture animation cycling
     const prevFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
     this.furnitureAnimTimer += dt;
@@ -721,6 +903,7 @@ export class OfficeState {
     }
 
     const toDelete: number[] = [];
+    this.tickVisitTargets();
     for (const ch of this.characters.values()) {
       // Handle matrix effect animation
       if (ch.matrixEffect) {
@@ -744,11 +927,18 @@ export class OfficeState {
         updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
       );
 
-      // Tick bubble timer for waiting bubbles
+      // Tick bubble timer for waiting / chat bubbles
       if (ch.bubbleType === 'waiting') {
         ch.bubbleTimer -= dt;
         if (ch.bubbleTimer <= 0) {
           ch.bubbleType = null;
+          ch.bubbleTimer = 0;
+        }
+      } else if (ch.bubbleType === 'chat') {
+        ch.bubbleTimer -= dt;
+        if (ch.bubbleTimer <= 0) {
+          ch.bubbleType = null;
+          ch.bubbleText = null;
           ch.bubbleTimer = 0;
         }
       }

@@ -8,8 +8,10 @@
  * Each connecting WebSocket client receives the full state on webviewReady.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 
+import { AgentMemoryStore } from './agentMemoryStore.js';
 import { AgentRuntime } from './agentRuntime.js';
 import { AgentStateStore } from './agentStateStore.js';
 import {
@@ -20,6 +22,8 @@ import {
   loadWallTiles,
 } from './assetLoader.js';
 import type { AssetCache } from './clientMessageHandler.js';
+import type { OrchestratorRef } from './clientMessageHandler.js';
+import { DEFAULT_DEMO_WORKERS } from './facilityConstants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
 import { OrchestratorManager } from './orchestratorManager.js';
 import { claudeProvider, copyHookScript, createDefaultRegistry } from './providers/index.js';
@@ -28,13 +32,40 @@ import { SpawnedAgentManager } from './spawnedAgentManager.js';
 
 // ── Argument parsing ──────────────────────────────────────────
 
+function loadDotEnv(root: string): void {
+  const filePath = path.join(root, '.env');
+  if (!fs.existsSync(filePath)) return;
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed
+      .slice(eq + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 interface CliArgs {
   port: number;
   host: string;
+  orchestrator: boolean;
+  workers: number;
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { port: 3100, host: '127.0.0.1' };
+  const args: CliArgs = {
+    port: 3100,
+    host: '127.0.0.1',
+    orchestrator: process.env.PIXEL_AGENTS_ORCHESTRATOR !== '0',
+    workers: Number(process.env.PIXEL_AGENTS_WORKERS ?? String(DEFAULT_DEMO_WORKERS)),
+  };
   for (let i = 0; i < argv.length; i++) {
     if ((argv[i] === '--port' || argv[i] === '-p') && argv[i + 1]) {
       args.port = parseInt(argv[i + 1], 10);
@@ -42,15 +73,28 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (argv[i] === '--host' && argv[i + 1]) {
       args.host = argv[i + 1];
       i++;
+    } else if (argv[i] === '--workers' && argv[i + 1]) {
+      args.workers = Math.max(0, parseInt(argv[i + 1], 10));
+      i++;
+    } else if (argv[i] === '--orchestrator') {
+      args.orchestrator = true;
+    } else if (argv[i] === '--no-orchestrator') {
+      args.orchestrator = false;
     } else if (argv[i] === '--help') {
       console.log(`Usage: pixel-agents [options]
 
 Options:
   --port, -p <number>   Port to listen on (default: 3100)
   --host <string>       Host to bind to (default: 127.0.0.1)
+  --workers <number>    Worker rooms to build (default: ${DEFAULT_DEMO_WORKERS})
+  --no-orchestrator     Start the server without the gamified worker facility
+  --orchestrator        Start the gamified worker facility
   --help                Show this help message`);
       process.exit(0);
     }
+  }
+  if (!Number.isFinite(args.workers)) {
+    args.workers = DEFAULT_DEMO_WORKERS;
   }
   return args;
 }
@@ -58,6 +102,7 @@ Options:
 // ── Main ──────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  loadDotEnv(process.cwd());
   const args = parseArgs(process.argv.slice(2));
 
   // dist/ contains both the CLI bundle and the assets/ + webview/ directories
@@ -84,12 +129,27 @@ async function main(): Promise<void> {
   const adapter = new FileStateAdapter();
   store.setAdapter(adapter);
 
+  // Persistent memory/history/learning for agents (~/.pixel-agents/memory/).
+  const memoryStore = new AgentMemoryStore();
+
+  process.env.PIXEL_AGENTS_ORCHESTRATOR = args.orchestrator ? '1' : '0';
+
   // ── Provider registry + spawned-agent manager (daemon owns + sandboxes CLIs) ──
   const registry = createDefaultRegistry();
+  const orchestratorRef: OrchestratorRef = { current: null };
   const spawnManager = new SpawnedAgentManager({
     registry,
     emit: (m) => store.broadcast(m),
     allocateId: () => store.nextAgentId.current++,
+    memory: memoryStore,
+    onAgentEvent: (id, ev) => {
+      orchestratorRef.current?.handleAgentEvent(id, ev);
+      // Persist every agent event to durable history, keyed by stable session id.
+      const details = spawnManager.getDetails(id);
+      memoryStore.record(details?.sessionId ?? String(id), ev, {
+        providerId: details?.providerId,
+      });
+    },
   });
   console.log(
     `[Pixel Agents] Providers: ${registry
@@ -131,7 +191,6 @@ async function main(): Promise<void> {
     const config = await server.start({
       store,
       runtime,
-      embedded: false,
       host: args.host,
       port: args.port,
       staticDir,
@@ -139,6 +198,7 @@ async function main(): Promise<void> {
       onSetHooksEnabled,
       spawnManager,
       registry,
+      orchestratorRef,
     });
     currentConfig = { port: config.port, token: config.token };
 
@@ -168,28 +228,42 @@ async function main(): Promise<void> {
       runtime.startStaleCheck();
     }
 
-    // Optional: boot the orchestrator swarm (token-free) — a central overlord
-    // that spawns + commands a swarm of worker agents. Enabled via env flag.
+    // Boot the gamified orchestrator facility by default. Worker rooms use the
+    // configured coding providers first (Kimi/Z.ai), then demo lanes as fallback.
     let orchestrator: OrchestratorManager | null = null;
-    if (process.env.PIXEL_AGENTS_ORCHESTRATOR) {
+    if (args.orchestrator) {
       orchestrator = new OrchestratorManager({
         manager: spawnManager,
         emit: (m) => store.broadcast(m),
-        // Broadcast the procedurally-built facility layout to clients only —
-        // do NOT persist it (would clobber the user's saved office layout).
-        onLayout: (layout) => store.broadcast({ type: 'layoutLoaded', layout }),
+        onLayout: (layout) =>
+          store.broadcast({ type: 'layoutLoaded', layout, facilityLayout: true }),
       });
-      const workerCount = Number(process.env.PIXEL_AGENTS_WORKERS ?? '5');
+      orchestratorRef.current = orchestrator;
+      const workerCount = args.workers;
       void orchestrator.start({ workerCount, cwd });
-      console.log(`[Pixel Agents] Orchestrator facility starting (overlord + ${workerCount} rooms)`);
+      console.log(`[Pixel Agents] Orchestrator facility starting (leader + ${workerCount} rooms)`);
+      console.log(
+        '[Pixel Agents] Provider roster: Kimi K2.6 first when configured, then two Z.ai GLM-5.1 coding lanes, then demo lanes',
+      );
+      console.log(
+        '[Pixel Agents] Tip: PIXEL_AGENTS_FRESH_FACILITY=1 resets saved progress; PIXEL_AGENTS_FAST_FACILITY=1 speeds room build',
+      );
     }
 
-    console.log(`\n  Pixel Agents server running at http://${args.host}:${config.port}\n`);
+    console.log(`\n  Pixel Agents server running at http://${args.host}:${config.port}`);
+    if (args.orchestrator) {
+      console.log(
+        '  Watch the swarm: open the URL, use Facility Command at the bottom, click Live feed items to follow agents\n',
+      );
+    } else {
+      console.log('');
+    }
 
     // ── Graceful shutdown ──
     function shutdown(): void {
       console.log('\nShutting down...');
       orchestrator?.dispose();
+      orchestratorRef.current = null;
       spawnManager.dispose();
       runtime.dispose();
       server.stop();

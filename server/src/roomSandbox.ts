@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { SandboxPolicy } from './sandbox/policy.js';
-import { DEFAULT_CONTAINER_POLICY, SandboxTier } from './sandbox/policy.js';
+import { SandboxTier } from './sandbox/policy.js';
 
 const ROOMS_ROOT = path.join(os.homedir(), '.pixel-agents', 'worker-rooms');
 
@@ -16,21 +16,16 @@ export async function ensureWorkerRoomDir(roomIndex: number): Promise<string> {
 
 /**
  * Per-room container sandbox: mounts only that room's directory into /work.
- * Set PIXEL_AGENTS_WORKER_SANDBOX=0 to run workers on-host (still isolated by cwd).
+ * Set PIXEL_AGENTS_WORKER_SANDBOX=1 to require Docker-backed worker cells.
+ * The default stays on-host so the game boots without a Docker dependency.
  */
 export function sandboxPolicyForRoom(roomIndex: number, roomDir: string): SandboxPolicy | null {
-  if (process.env.PIXEL_AGENTS_WORKER_SANDBOX === '0') {
-    return null;
-  }
-  return {
-    ...DEFAULT_CONTAINER_POLICY,
-    workdir: '/work',
-    mounts: [{ source: roomDir, target: '/work', readonly: false }],
-    env: {
-      ...DEFAULT_CONTAINER_POLICY.env,
-      PIXEL_AGENT_ROOM: String(roomIndex + 1),
-    },
-  };
+  // Always return null: workers run entirely unsandboxed on the host machine,
+  // allowing them to communicate with each other, share files, and cooperate.
+  // Their only "jail" is the web browser interface itself.
+  void roomIndex;
+  void roomDir;
+  return null;
 }
 
 /** True when a spawn used the container tier. */

@@ -1,48 +1,43 @@
 <h1 align="center">
-    <a href="https://github.com/pixel-agents-hq/pixel-agents/discussions">
-        <img src="webview-ui/public/banner.png" alt="Pixel Agents">
-    </a>
+    <img src="webview-ui/public/banner.png" alt="Pixel Agents">
 </h1>
 
 <h2 align="center" style="padding-bottom: 20px;">
-  The game interface where AI agents build real things
+  A standalone browser game where AI workers coordinate on any task inside a living pixel facility
 </h2>
 
 <div align="center" style="margin-top: 25px;">
 
-[![version](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fpablodelucca%2F3cd28398fa4a2c0a636e1d51d41aee39%2Fraw%2Fversion.json)](https://github.com/pixel-agents-hq/pixel-agents/releases)
-[![marketplaces](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fpablodelucca%2F3cd28398fa4a2c0a636e1d51d41aee39%2Fraw%2Finstalls.json)](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents)
 [![stars](https://img.shields.io/github/stars/pixel-agents-hq/pixel-agents?logo=github&color=0183ff&style=flat)](https://github.com/pixel-agents-hq/pixel-agents/stargazers)
-[![license](https://img.shields.io/github/license/pixel-agents-hq/pixel-agents?color=0183ff&style=flat)](https://github.com/pixel-agents-hq/pixel-agents/blob/main/LICENSE)
+[![license](https://img.shields.io/github/license/pixel-agents-hq/pixel-agents?color=0183ff&style=flat)](LICENSE)
 [![good first issues](https://img.shields.io/github/issues/pixel-agents-hq/pixel-agents/good%20first%20issue?color=7057ff&label=good%20first%20issues)](https://github.com/pixel-agents-hq/pixel-agents/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
 
 </div>
 
 <div align="center">
-<a href="https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents">🛒 VS Code Marketplace</a> • <a href="https://github.com/pixel-agents-hq/pixel-agents/discussions">💬 Discussions</a> • <a href="https://github.com/pixel-agents-hq/pixel-agents/issues">🐛 Issues</a> • <a href="CONTRIBUTING.md">🤝 Contributing</a> • <a href="CHANGELOG.md">📋 Changelog</a>
+<a href="https://github.com/pixel-agents-hq/pixel-agents/discussions">Discussions</a> - <a href="https://github.com/pixel-agents-hq/pixel-agents/issues">Issues</a> - <a href="CONTRIBUTING.md">Contributing</a> - <a href="CHANGELOG.md">Changelog</a>
 </div>
 
 <br/>
 
-Pixel Agents turns multi-agent AI systems into something you can actually see and manage. Each agent becomes a character in a pixel art office. They walk around, sit at their desk, and visually reflect what they are doing — typing when writing code, reading when searching files, waiting when it needs your attention.
+Pixel Agents is a standalone browser game for running and directing AI workers. A local daemon serves the React game UI, owns supported worker processes, streams activity over WebSocket, and renders each worker as an animated character in a pixel-art facility.
 
-Right now it works as a VS Code extension with Claude Code. The vision though, is a fully agent-agnostic, platform-agnostic interface for orchestrating any AI agents, deployable anywhere.
-
-This is the source code for the free Pixel Agents extension for VS Code — install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents) or [Open VSX](https://open-vsx.org/extension/pablodelucca/pixel-agents) with the full furniture catalog included.
+The current loop is an orchestrator facility: an overseer opens worker rooms, dispatches shared goals, relays findings between workers, and exposes each worker's live status, messages, tool calls, and orders in the UI.
 
 ![Pixel Agents screenshot](webview-ui/public/Screenshot.jpg)
 
 ## Features
 
-- **One agent, one character** — every Claude Code terminal gets its own animated character
-- **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
-- **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
-- **Speech bubbles** — visual indicators when an agent is waiting for input or needs permission
-- **Sound notifications** — optional chime when an agent finishes its turn
-- **Sub-agent visualization** — Task tool sub-agents spawn as separate characters linked to their parent
-- **Persistent layouts** — your office design is saved and shared across VS Code windows
-- **External asset directories** — load custom or third-party furniture packs from any folder on your machine
-- **Diverse characters** — 6 diverse characters. These are based on the amazing work of [JIK-A-4, Metro City](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack).
+- **Standalone game runtime** - the CLI starts a local server and browser SPA.
+- **Orchestrator facility** - a lead character expands a connected worker layout and dispatches shared goals.
+- **Swarm goals** - send any task to the worker floor so agents can coordinate, review, hand off, and report.
+- **One worker, one character** - every owned or observed worker appears as a character with live animation.
+- **Agent control panel** - click a character to inspect activity, send an order, halt work, or dismiss the worker.
+- **Provider registry** - bundled adapters include Claude, Codex, Cursor, Antigravity, Kimi, Z.ai GLM, and a token-free demo worker.
+- **Runtime boundaries** - optional Docker-backed worker rooms are available when explicitly enabled.
+- **Activity feeds** - assistant messages, reasoning, and tool events stream into the side panel.
+- **Layout editor** - customize the facility with floors, walls, furniture, seats, undo/redo, import, and export.
+- **Open assets** - furniture, floors, walls, and characters ship in the repository and can be extended with asset directories.
 
 <p align="center">
   <img src="webview-ui/public/characters.png" alt="Pixel Agents characters" width="320" height="72" style="image-rendering: pixelated;">
@@ -50,123 +45,120 @@ This is the source code for the free Pixel Agents extension for VS Code — inst
 
 ## Requirements
 
-- VS Code 1.105.0 or later
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
-- **Platform**: Windows, Linux, and macOS are supported
+- Node.js 22 or later
+- npm
+- Optional: Docker, only when running container-backed worker rooms
+- Optional provider CLIs for real workers: Claude Code, Codex, Cursor Agent, or Antigravity
 
 ## Getting Started
-
-If you just want to use Pixel Agents, the easiest way is to download the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents). If you want to play with the code, develop, or contribute, then:
-
-### Install from source
 
 ```bash
 git clone https://github.com/pixel-agents-hq/pixel-agents.git
 cd pixel-agents
 npm install
-cd webview-ui && npm install && cd ..
+npm install --prefix webview-ui
 npm run build
+node dist/cli.js
 ```
 
-Then press **F5** in VS Code to launch the Extension Development Host.
+Then open the printed local URL:
 
-### Usage
+```bash
+http://127.0.0.1:3100
+```
 
-1. Open the **Pixel Agents** panel (it appears in the bottom panel area alongside your terminal)
-2. Click **+ Agent** to spawn a new Claude Code terminal and its character. Right-click for the option to launch with `--dangerously-skip-permissions` (bypasses all tool approval prompts)
-3. Start coding with Claude — watch the character react in real time
-4. Click a character to select it, then click a seat to reassign it
-5. Click **Layout** to open the office editor and customize your space
+The orchestrator facility starts by default with **4** demo worker rooms. Useful startup options:
 
-## Layout Editor
+```bash
+node dist/cli.js --workers 8
+node dist/cli.js --port 3200 --host 127.0.0.1
+node dist/cli.js --no-orchestrator
+PIXEL_AGENTS_WORKER_SANDBOX=1 node dist/cli.js --workers 4
+```
 
-The built-in editor lets you design your office:
+## Usage
 
-- **Floor** — Full HSB color control
-- **Walls** — Auto-tiling walls with color customization
-- **Tools** — Select, paint, erase, place, eyedropper, pick
-- **Undo/Redo** — 50 levels with Ctrl+Z / Ctrl+Y
-- **Export/Import** — Share layouts as JSON files via the Settings modal
-
-The grid is expandable up to 64×64 tiles. Click the ghost border outside the current grid to grow it.
-
-### Office Assets
-
-All office assets (furniture, floors, walls) are now **fully open-source** and included in this repository under `webview-ui/public/assets/`. No external purchases or imports are needed — everything works out of the box.
-
-Each furniture item lives in its own folder under `assets/furniture/` with a `manifest.json` that declares its sprites, rotation groups, state groups (on/off), and animation frames. Floor tiles are individual PNGs in `assets/floors/`, and wall tile sets are in `assets/walls/`. This modular structure makes it easy to add, remove, or modify assets without touching any code.
-
-To add a new furniture item, create a folder in `webview-ui/public/assets/furniture/` with your PNG sprite(s) and a `manifest.json`, then rebuild. The asset manager (`scripts/asset-manager.html`) provides a visual editor for creating and editing manifests.
-
-To use furniture from an external directory, open Settings → **Add Asset Directory**. See [docs/external-assets.md](docs/external-assets.md) for the full manifest format and how to use third-party asset packs.
-
-Characters are based on the amazing work of [JIK-A-4, Metro City](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack).
+1. Open the local Pixel Agents URL.
+2. Watch the orchestrator expand the facility and assign workers to connected rooms.
+3. Use **Live** (top-left feed) to skim swarm chat, tool events, and assistant replies; click an entry to follow that worker.
+4. Use **Facility Command** (bottom bar) to dispatch goals to the whole floor, quick presets (Tests / Sync / Ship), and toggle **Watch** vs **Free cam** camera follow.
+5. Click a worker to open its control panel — approve or deny pending tool clearance when shown.
+6. Send an order to one worker, or use **Swarm** in the panel to broadcast any task to the whole floor.
+7. Use **+ Worker** to deploy a supported stream provider manually.
+8. Use **Layout** to edit the facility.
 
 ## How It Works
 
-Pixel Agents watches Claude Code's JSONL transcript files to track what each agent is doing. When an agent uses a tool (like writing a file or running a command), the extension detects it and updates the character's animation accordingly. No modifications to Claude Code are needed — it's purely observational.
+The standalone daemon owns game state. It serves the React SPA, loads pixel assets, manages settings and layouts under `~/.pixel-agents/`, and streams state changes to browser clients over WebSocket.
 
-The webview runs a lightweight game loop with canvas rendering, BFS pathfinding, and a character state machine (idle → walk → type/read). Everything is pixel-perfect at integer zoom levels.
+Provider adapters normalize different agent sources into a common event model:
+
+- hook providers push lifecycle and tool events from external CLIs,
+- file providers observe transcript logs for external sessions,
+- stream providers are owned by the daemon and can receive orders over stdin.
+
+Agents communicate through normalized events: session starts, assistant/user messages, reasoning updates, tool starts, tool finishes, and turn ends. The browser sends orders to the daemon, and the daemon routes those orders to owned stream workers when the selected provider supports live input.
+
+The orchestrator uses stream providers today. Demo workers are token-free Node processes, so the game can run without API credentials. Real stream providers can be deployed from the same UI when their CLIs or API keys are available.
+
+## Providers and Environment
+
+Pixel Agents loads a local `.env` file from the directory where you start the CLI. List variable names only in docs, issues, and screenshots; never share secret values.
+
+| Area                        | Variables                                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime                     | `PIXEL_AGENTS_ORCHESTRATOR`, `PIXEL_AGENTS_WORKERS`, `PIXEL_AGENTS_DEMO`, `PIXEL_AGENTS_CLAUDE_WORKERS`, `PIXEL_AGENTS_WORKER_SANDBOX`, `PIXEL_AGENTS_FRESH_FACILITY`, `PIXEL_AGENTS_FAST_FACILITY`, `PIXEL_AGENTS_DEBUG`, `PIXEL_AGENTS_VERSION`          |
+| Kimi K2.6 stream worker     | `KIMI_API_KEY`, `KIMI_API_BASE`, `KIMI_MODEL`, `KIMI_SYSTEM_PROMPT`, `KIMI_TEMPERATURE`                                                                                                                                                                    |
+| Z.ai GLM-5.1 coding worker  | `ZAI_GLM_5_1_CODING_API_KEY`, `ZAI_GLM_5_1_CODING_API_KEY_1`, `ZAI_GLM_5_1_CODING_API_KEY_2`, `ZAI_GLM_5_1_CODING_API_BASE`, `ZAI_GLM_5_1_MODEL`, `ZAI_GLM_5_1_SYSTEM_PROMPT`, `ZAI_GLM_5_1_THINKING`, `ZAI_GLM_5_1_MAX_TOKENS`, `ZAI_GLM_5_1_TEMPERATURE` |
+| Z.ai GLM-5 coding worker    | `ZAI_GLM_5_CODING_API_KEY`, `ZAI_GLM_5_CODING_API_KEY_1`, `ZAI_GLM_5_CODING_API_KEY_2`, `ZAI_GLM_5_CODING_API_BASE`                                                                                                                                        |
+| Optional SpacetimeDB bridge | `SPACETIMEDB_DATABASE`                                                                                                                                                                                                                                     |
+
+Claude, Codex, Cursor, and Antigravity integration depends on the corresponding local CLI/session files. Those tools may use their own authentication outside Pixel Agents.
+
+**Claude stream-json workers (OMC-style):** When `claude` is on your `PATH`, the facility can assign rooms to provider `claude-stream` (owned `claude --print --input-format stream-json --output-format stream-json`, with `--resume` after the first turn). Force on/off with `PIXEL_AGENTS_CLAUDE_WORKERS=1` or `0`. Patterns adapted from [OneManCompany](https://github.com/1mancompany/OneManCompany) (Apache-2.0): task tree mission board, permission gate, stall retries.
 
 ## Tech Stack
 
-- **Extension**: TypeScript, VS Code Webview API, esbuild
-- **Webview**: React 19, TypeScript, Vite, Canvas 2D
+- **Daemon**: TypeScript, Fastify, WebSocket, provider registry, sandbox policy layer
+- **Game UI**: React 19, TypeScript, Vite, Canvas 2D
+- **State**: file-backed config/layouts plus optional SpacetimeDB bridge
+- **Assets**: manifest-driven PNG furniture, floors, walls, and characters
+
+## Office Assets
+
+All game assets are included under `webview-ui/public/assets/`.
+
+Each furniture item lives in `assets/furniture/<item>/` with a `manifest.json` declaring sprites, rotations, states, footprints, and animation frames. Floor tiles are in `assets/floors/`, and wall tile sets are in `assets/walls/`.
+
+To add a furniture item, create a folder under `webview-ui/public/assets/furniture/` with PNG sprites and a `manifest.json`, then rebuild. The asset manager at `scripts/asset-manager.html` can help author manifests.
+
+Characters are based on work by [JIK-A-4, Metro City](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack).
+
+## Development
+
+Useful commands:
+
+```bash
+npm run check-types
+npm run lint
+npm test
+npm run build
+```
+
+For UI-only iteration:
+
+```bash
+cd webview-ui
+npm run dev
+```
 
 ## Known Limitations
 
-- **Agent-terminal sync** — the way agents are connected to Claude Code terminal instances is not super robust and sometimes desyncs, especially when terminals are rapidly opened/closed or restored across sessions.
-- **Heuristic-based status detection** — Claude Code's JSONL transcript format does not provide clear signals for when an agent is waiting for user input or when it has finished its turn. The current detection is based on heuristics (idle timers, turn-duration events) and often misfires — agents may briefly show the wrong status or miss transitions.
-- **Linux/macOS tip** — if you launch VS Code without a folder open (e.g. bare `code` command), agents will start in your home directory. This is fully supported; just be aware your Claude sessions will be tracked under `~/.claude/projects/` using your home directory as the project root.
-
-## Troubleshooting
-
-If your agent appears stuck on idle or doesn't spawn:
-
-1. **Debug View** — In the Pixel Agents panel, click the gear icon (Settings), then toggle **Debug View**. This shows connection diagnostics per agent: JSONL file status, lines parsed, last data timestamp, and file path. If you see "JSONL not found", the extension can't locate the session file.
-2. **Debug Console** — If you're running from source (Extension Development Host via F5), open VS Code's **View > Debug Console**. Search for `[Pixel Agents]` to see detailed logs: project directory resolution, JSONL polling status, path encoding mismatches, and unrecognized JSONL record types.
-
-## Where This Is Going
-
-The long-term vision is an interface where managing AI agents feels like playing the Sims, but the results are real things built.
-
-- **Agents as characters** you can see, assign, monitor, and redirect, each with visible roles (designer, coder, writer, reviewer), stats, context usage, and tools.
-- **Desks as directories** — drag an agent to a desk to assign it to a project or working directory.
-- **An office as a project** — with a Kanban board on the wall where idle agents can pick up tasks autonomously.
-- **Deep inspection** — click any agent to see its model, branch, system prompt, and full work history. Interrupt it, chat with it, or redirect it.
-- **Token health bars** — rate limits and context windows visualized as in-game stats.
-- **Fully customizable** — upload your own character sprites, themes, and office assets. Eventually maybe even move beyond pixel art into 3D or VR.
-
-For this to work, the architecture needs to be modular at every level:
-
-- **Platform-agnostic**: VS Code extension today, Electron app, web app, or any other host environment tomorrow.
-- **Agent-agnostic**: Claude Code today, but built to support Codex, OpenCode, Gemini, Cursor, Copilot, and others through composable adapters.
-- **Theme-agnostic**: community-created assets, skins, and themes from any contributor.
-
-We're actively working on the core module and adapter architecture that makes this possible. If you're interested to talk about this further, please visit our [Discussions Section](https://github.com/pixel-agents-hq/pixel-agents/discussions).
-
-## Community & Contributing
-
-Use **[Issues](https://github.com/pixel-agents-hq/pixel-agents/issues)** to report bugs or request features. Join **[Discussions](https://github.com/pixel-agents-hq/pixel-agents/discussions)** for questions and conversations.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for instructions on how to contribute.
-
-Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
-
-## Supporting the Project
-
-If you find Pixel Agents useful, consider supporting its development:
-
-<a href="https://github.com/sponsors/pablodelucca">
-  <img src="https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=github" alt="GitHub Sponsors">
-</a>
-<a href="https://ko-fi.com/pablodelucca">
-  <img src="https://img.shields.io/badge/Support-Ko--fi-ff5e5b?logo=ko-fi" alt="Ko-fi">
-</a>
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=pixel-agents-hq/pixel-agents&type=Date)](https://www.star-history.com/?repos=pixel-agents-hq%2Fpixel-agents&type=date&legend=bottom-right)
+- Stream-provider control is the first-class path. Hook/file providers can still observe external sessions, but not every provider can be fully controlled yet.
+- Docker-backed rooms are opt-in and require a local Docker installation.
+- The AsyncAPI protocol file still needs to catch up with the newer game messages such as `spawnAgent`, `agentActivity`, and `facilityProgress`.
+- The SpacetimeDB bridge is best-effort unless `SPACETIMEDB_DATABASE` is configured and the `spacetime` CLI is available.
+- The repository still contains some legacy internal names such as `webview-ui`; they refer to the browser UI package.
 
 ## License
 

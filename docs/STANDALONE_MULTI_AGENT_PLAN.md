@@ -1,10 +1,10 @@
 # Standalone Multi-Agent Sandbox — Architecture & Plan
 
-> Status: **draft / proposal** (2026-05-24). Turns Pixel Agents from a VS Code
-> companion that *observes* Claude Code into a standalone daemon that *runs,
-> sandboxes, observes, and controls* multiple agent CLIs (Claude Code, Codex,
-> Cursor `cursor-agent`, Antigravity `agy`). Each pixel character becomes a
-> jailed agent process you can watch in full and talk to.
+> Status: **shipped / in active development** (2026-05-24 plan → feat/multi-agent-sandbox).
+> The standalone daemon is live. All four provider kinds (hook, file, stream, demo)
+> ship. The 20-room orchestrator facility, AgentMemoryStore, FacilityTaskTree,
+> PermissionGate, and stall detection are implemented. PTY/xterm.js and microVM
+> sandboxing are the remaining open items from this plan.
 
 ## 1. Vision
 
@@ -19,14 +19,14 @@ A "little prison" for agents: a headless daemon (`pixel-agents` CLI) that
 
 ## 1a. Decisions locked (2026-05-24)
 
-- **Sandbox = tiered/configurable.** Build the `SandboxPolicy` abstraction with
-  all tiers (0 none → 1 OS-native → 2 container → 3 microVM), selectable per
-  agent via config. No single-tier lock-in; keep evaluating options.
-- **Interaction = both.** Embedded **PTY terminal** (node-pty + xterm.js) for
-  free-form control **and** a structured **activity feed** (typed `Part` stream)
-  with permission approve/deny. Both surfaces, per the §7 end state.
-- **Mode = design-first.** Mine reference repos (cloned to `/tmp/pa-refs`),
-  consolidate a steal-list, refine this doc, then build. No production code yet.
+- **Sandbox = tiered/configurable.** ✅ `SandboxPolicy` abstraction with all tiers
+  (none / os-native / container / microvm) implemented in `sandbox/policy.ts`.
+  Selectable per agent via `SpawnAgentOptions.sandbox`.
+- **Interaction = both.** ✅ **Structured activity feed** (typed `AgentEvent` stream)
+  - permission approve/deny (`PermissionGate`) shipped. ⏳ **PTY terminal**
+    (node-pty + xterm.js) not yet implemented — stream-json is the live path.
+- **Mode = design-first.** ✅ **COMPLETE.** Reference repos mined, steal-list
+  consolidated, plan refined, production code shipped.
 
 ## 2. What already exists (the seam to build on)
 
@@ -39,7 +39,7 @@ The repo is ~80% decoupled already (commits #238, #273):
   union (`toolStart|toolEnd|turnEnd|subagent*|progress|permissionRequest|sessionStart|sessionEnd`).
   Its header explicitly reserves `FileProvider` (poll) and `StreamProvider`
   (push) "when a real second provider lands." **This is that moment.**
-- **`server/src/hookEventHandler.ts`** already dispatches on the *normalized*
+- **`server/src/hookEventHandler.ts`** already dispatches on the _normalized_
   `AgentEvent.kind` and already threads a `providerId` through
   (`handleEvent(providerId, event)`), `sessionRouter` buffers per-session.
 - **`clientMessageHandler.ts`** is the WS protocol hub; standalone server is the
@@ -48,7 +48,7 @@ The repo is ~80% decoupled already (commits #238, #273):
 **Gap:** everything is wired to the single `claudeProvider`
 (`hookEventHandler`, `clientMessageHandler`, `cli.ts` all import it directly),
 the `HookEventHandler` holds exactly one `provider`, and nothing spawns or
-sandboxes processes — agents are discovered by tailing files the *user's* CLI
+sandboxes processes — agents are discovered by tailing files the _user's_ CLI
 wrote. Interaction = the user typing into a VS Code terminal we don't own.
 
 ## 3. The pivot: observer → owner/controller
@@ -56,15 +56,15 @@ wrote. Interaction = the user typing into a VS Code terminal we don't own.
 To **interact** and **sandbox**, the daemon must **own the process**. You can't
 jail or type into a process you only tail. So the model inverts:
 
-| Today (observer) | Target (owner) |
-|---|---|
-| User launches CLI in VS Code terminal | Daemon spawns CLI in a **sandbox** under a **PTY** |
-| We tail `~/.../*.jsonl` for status | We parse the agent's **stdout stream** (crosses sandbox boundary) **and/or** the transcript |
-| Animation only | Animation **+ full activity feed + embedded terminal/chat** |
-| No control | **stdin write, interrupt, permission reply** over WS |
+| Today (observer)                      | Target (owner)                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| User launches CLI in VS Code terminal | Daemon spawns CLI in a **sandbox** under a **PTY**                                          |
+| We tail `~/.../*.jsonl` for status    | We parse the agent's **stdout stream** (crosses sandbox boundary) **and/or** the transcript |
+| Animation only                        | Animation **+ full activity feed + embedded terminal/chat**                                 |
+| No control                            | **stdin write, interrupt, permission reply** over WS                                        |
 
 File-watching does **not** go away — it stays as the **enrichment/fallback**
-layer (and the only option for *external* sessions the user starts elsewhere).
+layer (and the only option for _external_ sessions the user starts elsewhere).
 The new **process-ownership** layer is what unlocks interaction + isolation.
 
 ## 4. Provider model (generalize the taxonomy)
@@ -97,6 +97,7 @@ show the whole conversation, not just tool status:
   `diff`, `durationMs` — exactly OpenCode's `ToolState`.
 
 ### Registry
+
 `server/src/providers/index.ts` becomes a real registry
 (`Map<providerId, AgentProvider>`); `HookEventHandler` keys handlers/timers by
 `providerId` instead of holding one `provider`; `clientMessageHandler` sends a
@@ -104,18 +105,18 @@ show the whole conversation, not just tool status:
 
 ## 5. Per-CLI integration matrix (research-verified, 2026-05-24)
 
-| | **Claude Code** (`claude`) | **Codex** (`codex`) | **Cursor** (`cursor-agent`) | **Antigravity** (`agy`) |
-|---|---|---|---|---|
-| Transcript (poll) | `~/.claude/projects/<hash>/<sid>.jsonl` | `~/.codex/sessions/Y/M/D/rollout-*-<uuid>.jsonl` | `~/.cursor/projects/<slug>/agent-transcripts/<sid>/<sid>.jsonl` | `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl` |
-| Transcript format | JSONL (assistant/user/system) | JSONL `{timestamp,type,payload}` | JSONL `{role,message.content[tool_use…]}` | JSONL per-step `{type,status,tool_calls[]}` |
-| Hooks (push) | **Full** (`~/.claude/settings.json`) | **Full** (`hooks.json`/`config.toml`) | **Partial** — CLI fires ~shell-only; verify per version | **Exists in binary** (`pre/post/stop`), schema unconfirmed |
-| Stream (we own stdout) | `stream-json` (needs non-TTY) | **`codex exec --json`** (clean) | **`--print --output-format stream-json`** (rich: cwd, args, diffs, exit codes, usage) | none on stdout; `agentapi`/`StreamCascade` gRPC (random port, undocumented) |
-| Session id | **we dictate** `--session-id <uuid>` | discover after launch (`thread.started`/filename) | **pre-create** `cursor-agent create-chat` → `--resume <id>` | discover; bind via `--conversation <id>` / `-c` |
-| Set working dir | terminal `cwd` | `-C/--cd`, `--add-dir` | `--workspace <dir>` | cwd + `--add-dir` |
-| Skip permissions | `--dangerously-skip-permissions` | `--sandbox`/approval policy / bypass flag | `-f/--yolo`, `--sandbox` | `--dangerously-skip-permissions`, `--sandbox` |
-| Turn-end signal | `turn_duration` / `Stop` hook | `task_complete` / `Stop` hook | `result` event / `stop`(unverified) | step `status: DONE` |
-| Tool labels | tool_use name+input | `exec_command`+`parsed_cmd{read,search,list_files}`, `apply_patch` | `shell/read/edit ToolCall` (command, path, diff, exitCode) | `run_command/view_file/grep_search/write_to_file/replace_file_content` |
-| Sub-agents | Task/Agent, teams | `SubagentStart/Stop` hooks | `subagentStart/Stop`(unverified) | "Cascade tree" (`ForceStopCascadeTree`) |
+|                        | **Claude Code** (`claude`)              | **Codex** (`codex`)                                                | **Cursor** (`cursor-agent`)                                                           | **Antigravity** (`agy`)                                                        |
+| ---------------------- | --------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Transcript (poll)      | `~/.claude/projects/<hash>/<sid>.jsonl` | `~/.codex/sessions/Y/M/D/rollout-*-<uuid>.jsonl`                   | `~/.cursor/projects/<slug>/agent-transcripts/<sid>/<sid>.jsonl`                       | `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl` |
+| Transcript format      | JSONL (assistant/user/system)           | JSONL `{timestamp,type,payload}`                                   | JSONL `{role,message.content[tool_use…]}`                                             | JSONL per-step `{type,status,tool_calls[]}`                                    |
+| Hooks (push)           | **Full** (`~/.claude/settings.json`)    | **Full** (`hooks.json`/`config.toml`)                              | **Partial** — CLI fires ~shell-only; verify per version                               | **Exists in binary** (`pre/post/stop`), schema unconfirmed                     |
+| Stream (we own stdout) | `stream-json` (needs non-TTY)           | **`codex exec --json`** (clean)                                    | **`--print --output-format stream-json`** (rich: cwd, args, diffs, exit codes, usage) | none on stdout; `agentapi`/`StreamCascade` gRPC (random port, undocumented)    |
+| Session id             | **we dictate** `--session-id <uuid>`    | discover after launch (`thread.started`/filename)                  | **pre-create** `cursor-agent create-chat` → `--resume <id>`                           | discover; bind via `--conversation <id>` / `-c`                                |
+| Set working dir        | terminal `cwd`                          | `-C/--cd`, `--add-dir`                                             | `--workspace <dir>`                                                                   | cwd + `--add-dir`                                                              |
+| Skip permissions       | `--dangerously-skip-permissions`        | `--sandbox`/approval policy / bypass flag                          | `-f/--yolo`, `--sandbox`                                                              | `--dangerously-skip-permissions`, `--sandbox`                                  |
+| Turn-end signal        | `turn_duration` / `Stop` hook           | `task_complete` / `Stop` hook                                      | `result` event / `stop`(unverified)                                                   | step `status: DONE`                                                            |
+| Tool labels            | tool_use name+input                     | `exec_command`+`parsed_cmd{read,search,list_files}`, `apply_patch` | `shell/read/edit ToolCall` (command, path, diff, exitCode)                            | `run_command/view_file/grep_search/write_to_file/replace_file_content`         |
+| Sub-agents             | Task/Agent, teams                       | `SubagentStart/Stop` hooks                                         | `subagentStart/Stop`(unverified)                                                      | "Cascade tree" (`ForceStopCascadeTree`)                                        |
 
 **Recommended transport per CLI:** Claude → Hook+File (as today). Codex →
 Hook (push) + Stream for self-launched. Cursor → **Stream** (`stream-json` is the
@@ -131,11 +132,11 @@ strong signal) + File fallback. Antigravity → **File** (`transcript.jsonl` por
   reply → resolve (cascade `always`); sub-agents = **child sessions linked by
   `parentID`**; OpenAPI/schema as the source of truth for typed clients. Its
   "provider" layer is LLM-backends (AI SDK), **not** CLI adapters — borrow its
-  session/tool/event *contracts*, not its provider catalog.
+  session/tool/event _contracts_, not its provider catalog.
 - **openagentd** (`lthoangg/openagentd`): daemon UX (POST returns 202 + id,
   observe over a stream); **subscribe-before-replay** buffering so reconnects/
   multi-tab observers lose nothing; per-event `agent` tag to multiplex many
-  agents on one stream. Its "sandbox" is a Python path **denylist only** — *not*
+  agents on one stream. Its "sandbox" is a Python path **denylist only** — _not_
   real isolation; do **not** copy it for the prison.
 - **Real isolation references:** `dagger/container-use` (container + git worktree
   per agent, ships as MCP — closest match), `zerocore-ai/microsandbox` (microVMs),
@@ -182,9 +183,9 @@ The daemon launches each agent inside an isolation tier; the agent CLI's own
   untrusted or "danger-full-access" agents.
 
 **Key constraint — transcripts cross the boundary:** if the CLI runs in a
-container, it writes its JSONL *inside* the cell. So in sandboxed mode prefer the
+container, it writes its JSONL _inside_ the cell. So in sandboxed mode prefer the
 **StreamProvider** (stdout crosses the boundary cleanly) and/or **mount the CLI
-state dir out** for the FileProvider. This is *why* §4 adds StreamProvider as a
+state dir out** for the FileProvider. This is _why_ §4 adds StreamProvider as a
 first-class type, not just a nicety.
 
 ## 9. Standalone packaging
@@ -198,24 +199,37 @@ first-class type, not just a nicety.
 
 ## 10. Phased roadmap
 
-- **P0 — Provider registry refactor (no behavior change).** Make
-  `HookEventHandler`/`clientMessageHandler`/`cli.ts` provider-agnostic;
-  registry keyed by `providerId`; broadcast a provider list. *Pure refactor,
-  green tests.*
-- **P1 — `FileProvider` + Codex (poll-only).** Add the reserved `FileProvider`
-  type; implement `codexProvider` reading `rollout-*.jsonl`. Proves the
-  abstraction with the *easiest* second provider. Antigravity follows trivially
-  (same shape).
-- **P2 — `ProcessRunner` + PTY + interaction UI.** Daemon spawns Claude/Codex
-  under `node-pty`; xterm.js panel; `agentInput`/`agentInterrupt`/`spawnAgent`.
-  Tier-0/1 sandbox. "Interact + see everything" lands here.
-- **P3 — `StreamProvider`.** Cursor (`--print stream-json`) + Codex
-  (`exec --json`). Rich structured `Part` feed; conversation view.
-- **P4 — Sandbox tiers 2/3.** Container-per-agent (credential mounting, network
-  policy, transcript-out mount), then microVM tier.
+- **P0 — Provider registry refactor (no behavior change).** ✅ **DONE.** `ProviderRegistry`
+  (`registry.ts`, `defaultRegistry.ts`) seeds all providers from env; `HookEventHandler`,
+  `clientMessageHandler`, and `cli.ts` are provider-agnostic; provider list broadcast
+  on connect.
+- **P1 — `FileProvider` + Codex (poll-only).** ✅ **DONE.** `codexProvider` (polls
+  `~/.codex/sessions`) and `antigravityProvider` (polls `~/.gemini/antigravity-cli/brain`)
+  both implemented.
+- **P2 — `ProcessRunner` + PTY + interaction UI.** ✅ **DONE (stream-json path).**
+  `ProcessRunner` + `SpawnedAgentManager` own/stream/interact via stdin/stdout for all
+  stream providers. `PermissionGate` (blocking approve/deny). `agentInput`/`agentInterrupt`/
+  `spawnAgent`/`permissionReply` WS messages live. ⏳ **OPEN:** PTY (`node-pty`) +
+  xterm.js terminal tab — stream-json is the primary transport; raw PTY is a future add.
+- **P3 — `StreamProvider`.** ✅ **DONE.** Cursor, demo, Kimi K2.6, Z.ai GLM-5.1,
+  Z.ai GLM-5, and Claude stream-json providers all implemented and registered. Rich
+  `AgentEvent` feed (message/reasoning/toolStart/toolEnd/turnEnd/permissionRequest) streams
+  into the activity panel.
+- **P4 — Sandbox tiers 2/3.** ✅ **INFRA DONE.** `SandboxPolicy` + `SandboxTier`
+  abstraction (none/os-native/container/microvm) implemented. Container tier
+  (`buildDockerArgs`) validated with full Docker hardening flags (`--network none`,
+  `--cap-drop ALL`, read-only rootfs, tmpfs workdir). OS-native tier (`buildSandboxExecArgs`)
+  implemented. ⏳ **OPEN:** Worker rooms run unsandboxed by default; opt-in via
+  `PIXEL_AGENTS_WORKER_SANDBOX=1`. MicroVM tier is a placeholder.
 - **P5 — Permission round-trip + sub-agent trees + Antigravity hooks/gRPC.**
-  OpenCode-style approve/deny; child-session sub-agents; agy `agentapi` stream.
+  ✅ **PARTLY DONE.** `PermissionGate` (block-on-future approve/deny) and
+  `FacilityTaskTree` (dispatch/accept/reject, mission board, stall detection + retry)
+  both implemented. ⏳ **OPEN:** Antigravity hooks/gRPC wire format unverified;
+  sub-agent child-session linking not yet wired.
 - **P6 — Decouple/package** as standalone product; VS Code extension → thin adapter.
+  ✅ **DONE.** `pixel-agents` ships as a standalone npm package with `bin` entry.
+  VS Code extension is an optional adapter; `server/` + `core/` + `webview-ui/`
+  are the product.
 
 ## 11. Open questions / risks
 
@@ -252,7 +266,7 @@ Reference repos cloned to `/tmp/pa-refs/{agent-town,star-office-ui,onemancompany
    `claude -p --input-format stream-json --output-format stream-json --session-id <uuid>`,
    writes prompts to stdin, reads NDJSON stdout, auto-restarts via `--resume`.
    This **supersedes the repo CLAUDE.md note** that stream-json is unusable —
-   that was true only for *VS Code terminals* (TTY). A daemon owns a non-TTY
+   that was true only for _VS Code terminals_ (TTY). A daemon owns a non-TTY
    stdin, so clean structured bidirectional I/O works. ⇒ **Two interaction
    transports, not one:** (a) `stream-json`/`exec --json` for structured
    chat+activity (Claude, Codex, Cursor); (b) PTY+xterm.js only for free-form
@@ -268,10 +282,10 @@ Reference repos cloned to `/tmp/pa-refs/{agent-town,star-office-ui,onemancompany
   vs `attachAuggieBridge`); the **`auggie-bridge` CLI-adapter shape** —
   `Map<runId, ChildProcess>`, immediate `{runId, accepted}` ack, `SIGTERM` abort,
   orphan cleanup on WS close, `sessionKey→native session-id` resume map,
-  personality-prefix injection. Adopt the *structure*; replace its one-shot
+  personality-prefix injection. Adopt the _structure_; replace its one-shot
   `--print` buffering with our stream/PTY model.
 - **Steal (code-quality refs):** `components/game/utils/Pathfinder.ts` — featured
-  A* (MinHeap, octile heuristic, padded-rect collision grid, nearest-walkable
+  A\* (MinHeap, octile heuristic, padded-rect collision grid, nearest-walkable
   snap, colinear path simplification) — upgrade path from current BFS;
   `lib/events.ts` typed game event bus (React↔canvas seam); `GatewayClient`
   reconnect/timeout/pending-request + two-phase `__final_res__` ("accepted" then
@@ -297,7 +311,7 @@ Reference repos cloned to `/tmp/pa-refs/{agent-town,star-office-ui,onemancompany
 - **Confirms (no action):** data-driven single-source layout, per-zone slot
   distribution — our renderer (integer-zoom, DPR-perfect, camera follow, pan,
   full layout editor) is already more advanced. Don't adopt Phaser.
-- **Do NOT copy:** push-only state model as a *replacement* (our watch-based
+- **Do NOT copy:** push-only state model as a _replacement_ (our watch-based
   JSONL/hooks detection is correct for unmodified CLIs — push is an optional
   supplement); any LimeZu art.
 
@@ -333,7 +347,7 @@ Reference repos cloned to `/tmp/pa-refs/{agent-town,star-office-ui,onemancompany
 
 **Frame first:** container-use runs the **agent on the host** and reaches the
 sandbox **only via MCP tool calls** (each `environment_run_cmd`/`file_write` is a
-new Dagger container layer). **We invert this: the agent CLI runs *inside* the
+new Dagger container layer). **We invert this: the agent CLI runs _inside_ the
 prison and uses its own native bash/file tools.** That inversion drives the
 "does-not-transfer" list. Each "environment" = **one Dagger container + one git
 worktree/branch**; state lives in **git notes**, not a DB.
@@ -351,11 +365,11 @@ worktree/branch**; state lives in **git notes**, not a DB.
    into the container (`repository.go:210-228`); changes exported back via
    `Export({Wipe:true})` → `git add`/`commit` (`git.go:344-367`). Host files stay
    untouched; user adopts explicitly via `checkout`/`merge --no-ff`/`apply --squash`
-   (`repository.go:453-567`). **But** their export-after-*every-tool-call* is wrong
+   (`repository.go:453-567`). **But** their export-after-_every-tool-call_ is wrong
    for a live continuously-running agent → we **commit/snapshot the worktree on a
    timer or on idle**, not per syscall.
 3. **State + registry from git refs (no DB).** Per-env `State{CreatedAt, Config,
-   Container(ID), Title, SubmodulePaths}` stored in **git notes**
+Container(ID), Title, SubmodulePaths}` stored in **git notes**
    (`state.go:9-17`, `git.go:414-456`); list envs = `git branch`
    (`repository.go:314`); descendant filtering via `git merge-base --is-ancestor`.
    Persist our per-agent `SandboxPolicy`+tier+image-id the same way (crash-safe).
@@ -367,13 +381,13 @@ worktree/branch**; state lives in **git notes**, not a DB.
    (`~/.claude`,`~/.codex/auth.json`,`~/.cursor`,`~/.gemini`) at spawn into a
    masked env/mount, never bake into an image or commit to git.
 5. **MCP tool taxonomy + dual-tenant addressing.** `(environment_source,
-   environment_id)` with an optional single-tenant "current env in memory" mode
+environment_id)` with an optional single-tenant "current env in memory" mode
    (`mcpserver/tools.go:133-149`, `singletenant.go`). Even though our agents run
-   *inside* the cell (so we don't re-expose FS/exec as MCP), this addressing shape
-   + the JSON response that hands the user copy-paste `checkout/diff/log` commands
-   is a clean management-API model to mirror.
+   _inside_ the cell (so we don't re-expose FS/exec as MCP), this addressing shape
+   - the JSON response that hands the user copy-paste `checkout/diff/log` commands
+     is a clean management-API model to mirror.
 6. **Tiered config → rebuild pipeline.** `EnvironmentConfig{BaseImage, Workdir,
-   SetupCommands, InstallCommands, Env, Secrets, Services}` with setup-before-source
+SetupCommands, InstallCommands, Env, Secrets, Services}` with setup-before-source
    caching (`environment.go:215-233`). Generalize `BaseImage` into our **tier
    discriminator** (`none`→no image; `container`→image; `microVM`→VM image).
 7. **Cross-process typed flock** (source/fork/notes — `repository/flock.go:15-86`)
@@ -389,11 +403,11 @@ worktree/branch**; state lives in **git notes**, not a DB.
 - **One-shot buffered exec, no PTY/streaming** (`environment.go:254-297`; human
   `Terminal` only works under `dagger run`, `terminal.go:39-50`). Incompatible
   with our stream-everything+interact design — do not mirror their `Run`.
-- **Agent-on-host + MCP-mediated FS/exec.** We run the CLI *in* the cell with its
+- **Agent-on-host + MCP-mediated FS/exec.** We run the CLI _in_ the cell with its
   native tools; we don't need the MCP file/exec indirection.
-- **No network/resource/capability hardening, and exec is *privileged*
+- **No network/resource/capability hardening, and exec is _privileged_
   (`ExperimentalPrivilegedNesting:true`, §3).** container-use's "isolation" =
-  *workspace* isolation between parallel agents, **not** a security sandbox. **We
+  _workspace_ isolation between parallel agents, **not** a security sandbox. **We
   must add the actual prison bars ourselves** at the container tier:
   `--network none`/egress allowlist, `--memory`/`--cpus`/pids limits,
   `--cap-drop=ALL`, read-only rootfs + writable workdir, no-new-privileges,
@@ -438,7 +452,7 @@ docker run --rm -i \
 - **WORKDIR** — ephemeral writable tmpfs workdir usable by the non-root user.
 
 **De-risked:** the container-tier harness mechanics on TS/Node + Docker + macOS.
-**Still unproven (next spikes):** (1) a *real* CLI inside the cell — needs
+**Still unproven (next spikes):** (1) a _real_ CLI inside the cell — needs
 credential mounting (secret-ref resolution → masked mount of `~/.codex/auth.json`
 etc.) and the transcript-across-boundary decision (prefer stdout stream);
 (2) **PTY** path (`node-pty` native build) for free-form TUI + xterm.js;

@@ -13,8 +13,44 @@ import {
   PERMISSION_VOLUME,
 } from './constants.js';
 
+type AudioParamLike = {
+  setValueAtTime(value: number, startTime: number): void;
+  exponentialRampToValueAtTime(value: number, endTime: number): void;
+};
+
+type OscillatorLike = {
+  type: 'sine';
+  frequency: Pick<AudioParamLike, 'setValueAtTime'>;
+  connect(destination: GainLike): void;
+  start(when: number): void;
+  stop(when: number): void;
+};
+
+type GainLike = {
+  gain: AudioParamLike;
+  connect(destination: unknown): void;
+};
+
+type AudioContextLike = {
+  currentTime: number;
+  destination: unknown;
+  state: 'closed' | 'running' | 'suspended' | 'interrupted';
+  createOscillator(): OscillatorLike;
+  createGain(): GainLike;
+  resume(): Promise<void> | void;
+};
+
+type AudioGlobal = typeof globalThis & {
+  AudioContext?: new () => AudioContextLike;
+  webkitAudioContext?: new () => AudioContextLike;
+};
+
 let soundEnabled = true;
-let audioCtx: AudioContext | null = null;
+let audioCtx: AudioContextLike | null = null;
+let lastSoundAtMs = 0;
+
+/** Minimum gap between generated notification sounds. Prevents bursty agent events from stacking. */
+const SOUND_COOLDOWN_MS = 2500;
 
 export function setSoundEnabled(enabled: boolean): void {
   soundEnabled = enabled;
@@ -24,8 +60,16 @@ export function isSoundEnabled(): boolean {
   return soundEnabled;
 }
 
+function shouldPlaySound(): boolean {
+  if (!soundEnabled) return false;
+  const now = Date.now();
+  if (now - lastSoundAtMs < SOUND_COOLDOWN_MS) return false;
+  lastSoundAtMs = now;
+  return true;
+}
+
 function playNote(
-  ctx: AudioContext,
+  ctx: AudioContextLike,
   freq: number,
   startOffset: number,
   duration: number = NOTIFICATION_NOTE_DURATION_SEC,
@@ -48,12 +92,19 @@ function playNote(
   osc.stop(t + duration);
 }
 
+function createAudioContext(): AudioContextLike | null {
+  const audioGlobal = globalThis as AudioGlobal;
+  const AudioContextCtor = audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
+  return AudioContextCtor ? (new AudioContextCtor() as unknown as AudioContextLike) : null;
+}
+
 export async function playDoneSound(): Promise<void> {
-  if (!soundEnabled) return;
+  if (!shouldPlaySound()) return;
   try {
     if (!audioCtx) {
-      audioCtx = new AudioContext();
+      audioCtx = createAudioContext();
     }
+    if (!audioCtx) return;
     // Resume suspended context (webviews suspend until user gesture)
     if (audioCtx.state === 'suspended') {
       await audioCtx.resume();
@@ -67,11 +118,12 @@ export async function playDoneSound(): Promise<void> {
 }
 
 export async function playPermissionSound(): Promise<void> {
-  if (!soundEnabled) return;
+  if (!shouldPlaySound()) return;
   try {
     if (!audioCtx) {
-      audioCtx = new AudioContext();
+      audioCtx = createAudioContext();
     }
+    if (!audioCtx) return;
     if (audioCtx.state === 'suspended') {
       await audioCtx.resume();
     }
@@ -99,8 +151,9 @@ export async function playPermissionSound(): Promise<void> {
 export function unlockAudio(): void {
   try {
     if (!audioCtx) {
-      audioCtx = new AudioContext();
+      audioCtx = createAudioContext();
     }
+    if (!audioCtx) return;
     if (audioCtx.state === 'suspended') {
       audioCtx.resume();
     }

@@ -52,7 +52,7 @@ export type AgentEvent =
       reason: 'idle' | 'completed';
     }
   | { kind: 'progress'; toolId: string; data: unknown }
-  | { kind: 'permissionRequest' }
+  | { kind: 'permissionRequest'; requestId?: number }
   // ── conversation parts (borrowed from OpenCode's Part model) ──
   // Emitted by Stream/File providers so the UI can show the full conversation,
   // not just tool status. Handlers may forward these to the activity feed; the
@@ -114,7 +114,7 @@ export interface ProviderBase {
   buildLaunchCommand?(
     sessionId: string,
     cwd: string,
-    opts?: { bypassPermissions?: boolean },
+    opts?: { bypassPermissions?: boolean; resumeSession?: boolean },
   ): LaunchCommand;
 
   // ── Optional team/subagent extension (Agent Teams on Claude) ──
@@ -162,7 +162,7 @@ export interface StreamProvider extends ProviderBase {
   buildLaunchCommand(
     sessionId: string,
     cwd: string,
-    opts?: { bypassPermissions?: boolean },
+    opts?: { bypassPermissions?: boolean; resumeSession?: boolean },
   ): LaunchCommand;
   /** Required normalization boundary: one stdout line (NDJSON) -> AgentEvent. */
   parseStreamLine(line: string): AgentEvent | null;

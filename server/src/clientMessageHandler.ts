@@ -3,8 +3,16 @@ import * as crypto from 'crypto';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
-import { readConfig, writeConfig } from './configPersistence.js';
+import {
+  applyProviderKeysToEnv,
+  getProviderKeysPresence,
+  isAllowedProviderKey,
+  readConfig,
+  writeConfig,
+  writeProviderKey,
+} from './configPersistence.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
+import type { OrchestratorManager } from './orchestratorManager.js';
 import { claudeProvider } from './providers/index.js';
 import type { ProviderRegistry } from './providers/registry.js';
 import type { SandboxPolicy } from './sandbox/policy.js';
@@ -25,6 +33,9 @@ export interface AssetCache {
   defaultLayout: Record<string, unknown> | null;
 }
 
+/** Mutable ref so cli can attach the orchestrator after server.start(). */
+export type OrchestratorRef = { current: OrchestratorManager | null };
+
 export interface ClientMessageContext {
   store: AgentStateStore;
   runtime?: AgentRuntime;
@@ -35,6 +46,7 @@ export interface ClientMessageContext {
   spawnManager?: SpawnedAgentManager;
   /** Provider registry — exposes the spawnable provider list to the webview. */
   registry?: ProviderRegistry;
+  orchestratorRef?: OrchestratorRef;
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -132,6 +144,21 @@ export function handleClientMessage(
       break;
     }
 
+    case 'setProviderKey': {
+      const keyName = typeof msg.name === 'string' ? msg.name : '';
+      const keyValue = typeof msg.value === 'string' ? msg.value : '';
+      if (!isAllowedProviderKey(keyName)) break;
+      writeProviderKey(keyName, keyValue);
+      // Apply to live process (empty value removes the key from env)
+      if (keyValue.length > 0) {
+        process.env[keyName] = keyValue;
+      } else {
+        delete process.env[keyName];
+      }
+      send({ type: 'providerKeySet', name: keyName, isSet: keyValue.length > 0 });
+      break;
+    }
+
     // ── Spawned agents (daemon owns + sandboxes the CLI process) ──
     case 'spawnAgent': {
       if (!ctx.spawnManager) break;
@@ -149,6 +176,7 @@ export function handleClientMessage(
           cwd,
           sandbox,
           bypassPermissions: msg.bypassPermissions === true,
+          socialRoam: true,
         });
       } catch (err) {
         send({ type: 'spawnError', message: err instanceof Error ? err.message : String(err) });
@@ -162,6 +190,20 @@ export function handleClientMessage(
       }
       break;
 
+    case 'swarmInput': {
+      const text = typeof msg.text === 'string' ? msg.text.trim() : '';
+      if (!text) break;
+      const orchestrator = ctx.orchestratorRef?.current ?? null;
+      if (orchestrator) {
+        orchestrator.handleUserGoal(text);
+      } else if (ctx.spawnManager) {
+        for (const id of ctx.spawnManager.list()) {
+          ctx.spawnManager.sendInput(id, text);
+        }
+      }
+      break;
+    }
+
     case 'agentInterrupt':
       if (typeof msg.id === 'number') ctx.spawnManager?.interrupt(msg.id);
       break;
@@ -169,6 +211,18 @@ export function handleClientMessage(
     case 'stopSpawnedAgent':
       if (typeof msg.id === 'number') ctx.spawnManager?.stop(msg.id);
       break;
+
+    case 'permissionReply': {
+      const approved = msg.approved === true;
+      if (typeof msg.requestId === 'number') {
+        // Blocking path: resolve the PermissionGate promise by requestId.
+        ctx.spawnManager?.resolvePermission(msg.requestId, approved);
+      } else if (typeof msg.id === 'number') {
+        // Legacy fallback: resolve by agent id (stdin-only providers).
+        ctx.spawnManager?.permissionReply(msg.id, approved);
+      }
+      break;
+    }
 
     case 'focusAgent': {
       const id = typeof msg.id === 'number' ? msg.id : null;
@@ -183,15 +237,34 @@ export function handleClientMessage(
   }
 }
 
+function unionProviderToolCaps(registry: ProviderRegistry | undefined): {
+  readingTools: string[];
+  subagentToolNames: string[];
+} {
+  const readingTools = new Set<string>(claudeProvider.readingTools);
+  const subagentToolNames = new Set<string>(claudeProvider.subagentToolNames);
+  if (registry) {
+    for (const p of registry.list()) {
+      for (const t of p.readingTools) readingTools.add(t);
+      for (const t of p.subagentToolNames) subagentToolNames.add(t);
+    }
+  }
+  return {
+    readingTools: [...readingTools],
+    subagentToolNames: [...subagentToolNames],
+  };
+}
+
 function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const { store, runtime, cache } = ctx;
   const adapter = store.getAdapter();
 
   // 1. Provider capabilities (must arrive before any agent messages)
+  const caps = unionProviderToolCaps(ctx.registry);
   send({
     type: 'providerCapabilities',
-    readingTools: [...claudeProvider.readingTools],
-    subagentToolNames: [...claudeProvider.subagentToolNames],
+    readingTools: caps.readingTools,
+    subagentToolNames: caps.subagentToolNames,
   });
 
   // 1b. Multi-provider list (registry) — drives the spawn UI + per-provider caps.
@@ -219,9 +292,29 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     }
   }
 
-  // 3. Layout (saved file, or bundled default)
-  const savedLayout = readLayoutFromFile();
-  send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });
+  // 3. Layout — facility wins over saved user layout when orchestrator is active
+  const orchestrator = ctx.orchestratorRef?.current ?? null;
+  if (orchestrator) {
+    send({
+      type: 'layoutLoaded',
+      layout: orchestrator.getLayout(),
+      facilityLayout: true,
+    });
+    const progress = orchestrator.getFacilityProgress();
+    send({
+      type: 'facilityProgress',
+      builtRooms: progress.builtRooms,
+      totalRooms: progress.totalRooms,
+      phase: progress.phase,
+      homeSteps: progress.homeSteps,
+      totalHomeSteps: progress.totalHomeSteps,
+      sharedGoals: progress.sharedGoals,
+      missionBoard: progress.missionBoard,
+    });
+  } else {
+    const savedLayout = readLayoutFromFile();
+    send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });
+  }
 
   // 4. Settings (from adapter, with sensible defaults when adapter is absent)
   const cfg = readConfig();
@@ -255,6 +348,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const externalAgents: Record<number, boolean> = {};
   const agentProviders: Record<number, string> = {};
   const sandboxTiers: Record<number, string> = {};
+  const spawnedAgentMeta: Record<number, { seatId?: string; socialRoam?: boolean }> = {};
   for (const [id, agent] of store) {
     agentIds.push(id);
     if (agent.folderName) {
@@ -277,12 +371,21 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
         if (details) {
           agentProviders[id] = details.providerId;
           sandboxTiers[id] = details.sandboxTier;
+          if (details.folderName) {
+            folderNames[id] = details.folderName;
+          }
+          if (details.seatId) {
+            spawnedAgentMeta[id] = { ...spawnedAgentMeta[id], seatId: details.seatId };
+          }
+          if (details.socialRoam) {
+            spawnedAgentMeta[id] = { ...spawnedAgentMeta[id], socialRoam: true };
+          }
         }
       }
     }
   }
 
-  const seats = adapter?.loadSeats() ?? {};
+  const seats = { ...(adapter?.loadSeats() ?? {}), ...spawnedAgentMeta };
   send({
     type: 'existingAgents',
     agents: agentIds,
@@ -292,4 +395,6 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agentProviders,
     sandboxTiers,
   });
+
+  ctx.spawnManager?.resync(send);
 }

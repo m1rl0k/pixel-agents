@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { FacilityProgress } from '../components/FacilityBanner.js';
-import { AGENT_ACTIVITY_LOG_CAP, SPAWN_ERROR_DEFAULT } from '../constants.js';
+import type { FacilityProgress, MissionBoardItem } from '../components/FacilityBanner.js';
+import type { FacilityFeedItem } from '../components/FacilityWatchFeed.js';
+import {
+  AGENT_ACTIVITY_LOG_CAP,
+  FACILITY_FEED_MAX_ITEMS,
+  SPAWN_ERROR_DEFAULT,
+} from '../constants.js';
 import type { ActivityItem, ProviderInfo, SandboxTier } from '../interaction/messages.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { OfficeState } from '../office/engine/officeState.js';
@@ -53,7 +58,7 @@ export interface WorkspaceFolder {
   path: string;
 }
 
-interface ExtensionMessageState {
+export interface ExtensionMessageState {
   agents: number[];
   selectedAgent: number | null;
   agentTools: Record<number, ToolActivity[]>;
@@ -80,6 +85,7 @@ interface ExtensionMessageState {
   agentProviders: Record<number, string>;
   sandboxTiers: Record<number, SandboxTier>;
   facilityProgress: FacilityProgress | null;
+  facilityFeed: FacilityFeedItem[];
 }
 
 /** Append an activity item to an agent's capped log, returning a new map. */
@@ -141,19 +147,100 @@ export function useExtensionMessages(
   const [agentProviders, setAgentProviders] = useState<Record<number, string>>({});
   const [sandboxTiers, setSandboxTiers] = useState<Record<number, SandboxTier>>({});
   const [facilityProgress, setFacilityProgress] = useState<FacilityProgress | null>(null);
+  const [facilityFeed, setFacilityFeed] = useState<FacilityFeedItem[]>([]);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
+  /** Facility orchestrator mode — agents roam the browser office instead of staying at desks. */
+  const facilitySocialRef = useRef(false);
+  const facilityFeedSeqRef = useRef(0);
 
   useEffect(() => {
-    // Buffer agents from existingAgents until layout is loaded
+    // Buffer agents until layout (and seats) are ready
     let pendingAgents: Array<{
       id: number;
       palette?: number;
       hueShift?: number;
       seatId?: string;
       folderName?: string;
+      socialRoam?: boolean;
     }> = [];
+    /** Server-assigned seat ids for spawned workers — re-applied after facility layout grows. */
+    const spawnSeatByAgent = new Map<number, string>();
+
+    const applySpawnSeats = (office: OfficeState) => {
+      for (const [agentId, seatId] of spawnSeatByAgent) {
+        if (office.seats.has(seatId)) {
+          office.reassignSeat(agentId, seatId);
+        }
+      }
+    };
+
+    const enableFacilitySocial = (office: OfficeState, id: number) => {
+      if (facilitySocialRef.current) {
+        office.setSocialRoam(id, true);
+      }
+    };
+
+    const enableAllFacilitySocial = (office: OfficeState) => {
+      if (!facilitySocialRef.current) return;
+      for (const ch of office.characters.values()) {
+        if (!ch.isSubagent) {
+          office.setSocialRoam(ch.id, true);
+        }
+      }
+    };
+
+    const agentLabel = (office: OfficeState, id: number): string =>
+      office.characters.get(id)?.folderName ?? `Agent #${id}`;
+
+    const focusIfWatching = (
+      office: OfficeState,
+      agentId: number | null,
+      tileCol?: number,
+      tileRow?: number,
+    ): void => {
+      if (!facilitySocialRef.current || !office.facilityWatchMode) return;
+      office.setCameraFocus(agentId, tileCol, tileRow);
+    };
+
+    const pushFacilityFeed = (
+      office: OfficeState,
+      agentId: number,
+      text: string,
+      kind: FacilityFeedItem['kind'],
+    ): void => {
+      if (!facilitySocialRef.current) return;
+      const trimmed = text.replace(/\s+/g, ' ').trim();
+      if (!trimmed) return;
+      facilityFeedSeqRef.current += 1;
+      const item: FacilityFeedItem = {
+        id: `f-${facilityFeedSeqRef.current}`,
+        ts: Date.now(),
+        agentId,
+        agentLabel: agentLabel(office, agentId),
+        text: trimmed,
+        kind,
+      };
+      setFacilityFeed((prev) => {
+        const next = [...prev, item];
+        return next.length > FACILITY_FEED_MAX_ITEMS
+          ? next.slice(next.length - FACILITY_FEED_MAX_ITEMS)
+          : next;
+      });
+    };
+
+    const bufferAgent = (agent: {
+      id: number;
+      palette?: number;
+      hueShift?: number;
+      seatId?: string;
+      folderName?: string;
+      socialRoam?: boolean;
+    }) => {
+      if (pendingAgents.some((p) => p.id === agent.id)) return;
+      pendingAgents.push(agent);
+    };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = (msg: any) => {
@@ -177,7 +264,23 @@ export function useExtensionMessages(
         const kind = msg.kind as 'message' | 'reasoning';
         const role = msg.role as 'user' | 'assistant' | undefined;
         const text = msg.text as string;
-        setActivityByAgent((prev) => appendActivity(prev, id, { kind, role, text, ts: Date.now() }));
+        setActivityByAgent((prev) =>
+          appendActivity(prev, id, { kind, role, text, ts: Date.now() }),
+        );
+        if (kind === 'message' && role === 'assistant') {
+          os.showChatBubble(id, text);
+          pushFacilityFeed(os, id, text, 'message');
+          focusIfWatching(os, id);
+        } else if (kind === 'reasoning' && facilitySocialRef.current) {
+          pushFacilityFeed(os, id, text, 'message');
+        }
+        return;
+      }
+
+      if (msg.type === 'agentVisit') {
+        const fromId = msg.fromId as number;
+        const toId = msg.toId as number;
+        os.visitAgent(fromId, toId);
         return;
       }
 
@@ -187,8 +290,12 @@ export function useExtensionMessages(
       }
 
       if (msg.type === 'layoutLoaded') {
-        // Skip external layout updates while editor has unsaved changes
-        if (layoutReadyRef.current && isEditDirty?.()) {
+        const isFacilityLayout = msg.facilityLayout === true;
+        if (isFacilityLayout) {
+          facilitySocialRef.current = true;
+        }
+        // Skip external layout updates while editor has unsaved changes (facility expansion always wins)
+        if (layoutReadyRef.current && isEditDirty?.() && !isFacilityLayout) {
           console.log('[Webview] Skipping external layout update — editor has unsaved changes');
           return;
         }
@@ -203,9 +310,15 @@ export function useExtensionMessages(
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
-          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName);
+          if (p.seatId) {
+            spawnSeatByAgent.set(p.id, p.seatId);
+          }
+          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.socialRoam);
+          enableFacilitySocial(os, p.id);
         }
         pendingAgents = [];
+        applySpawnSeats(os);
+        enableAllFacilitySocial(os);
         layoutReadyRef.current = true;
         setLayoutReady(true);
         if (msg.wasReset) {
@@ -229,12 +342,24 @@ export function useExtensionMessages(
         const teammateName = msg.teammateName as string | undefined;
         const teammateParentId = msg.parentAgentId as number | undefined;
         const teamName = msg.teamName as string | undefined;
+        const seatId = msg.seatId as string | undefined;
+        const socialRoam = msg.socialRoam === true;
+        if (seatId) {
+          spawnSeatByAgent.set(id, seatId);
+        }
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
         // Don't auto-select teammates (keep focus on lead)
         if (!isTeammate) {
           setSelectedAgent(id);
         }
-        if (isTeammate && teammateParentId !== undefined) {
+        if (!layoutReadyRef.current) {
+          bufferAgent({
+            id,
+            seatId,
+            folderName,
+            socialRoam,
+          });
+        } else if (isTeammate && teammateParentId !== undefined) {
           // Teammate: inherit parent's palette and workspace folderName (teammate runs
           // in the same workspace as the lead). Name shown via agentName (teamRoleLabel).
           const parentCh = os.characters.get(teammateParentId);
@@ -249,9 +374,15 @@ export function useExtensionMessages(
             ch.agentName = teammateName;
           }
         } else {
-          os.addAgent(id, undefined, undefined, undefined, undefined, folderName);
+          os.addAgent(id, undefined, undefined, seatId, undefined, folderName, socialRoam);
+          if (seatId && os.seats.has(seatId)) {
+            os.reassignSeat(id, seatId);
+          }
+          enableFacilitySocial(os, id);
         }
-        saveAgentSeats(os);
+        if (layoutReadyRef.current) {
+          saveAgentSeats(os);
+        }
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number;
         setAgents((prev) => prev.filter((a) => a !== id));
@@ -300,7 +431,7 @@ export function useExtensionMessages(
         const incoming = msg.agents as number[];
         const meta = (msg.agentMeta || {}) as Record<
           number,
-          { palette?: number; hueShift?: number; seatId?: string }
+          { palette?: number; hueShift?: number; seatId?: string; socialRoam?: boolean }
         >;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
         const incomingProviders = (msg.agentProviders || {}) as Record<number, string>;
@@ -310,12 +441,16 @@ export function useExtensionMessages(
         // Buffer agents — they'll be added in layoutLoaded after seats are built
         for (const id of incoming) {
           const m = meta[id];
-          pendingAgents.push({
+          if (m?.seatId) {
+            spawnSeatByAgent.set(id, m.seatId);
+          }
+          bufferAgent({
             id,
             palette: m?.palette,
             hueShift: m?.hueShift,
             seatId: m?.seatId,
             folderName: folderNames[id],
+            socialRoam: m?.socialRoam,
           });
         }
         setAgents((prev) => {
@@ -351,6 +486,8 @@ export function useExtensionMessages(
         );
         os.setAgentTool(id, toolName);
         os.setAgentActive(id, true);
+        pushFacilityFeed(os, id, status, 'tool');
+        focusIfWatching(os, id);
         // Don't clear the permission bubble if the hook already confirmed permission is needed
         if (!permissionActive) {
           os.clearPermissionBubble(id);
@@ -425,7 +562,9 @@ export function useExtensionMessages(
         os.setAgentActive(id, status === 'active');
         if (status === 'waiting') {
           os.showWaitingBubble(id);
-          playDoneSound();
+          if (!facilitySocialRef.current) {
+            playDoneSound();
+          }
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number;
@@ -598,11 +737,51 @@ export function useExtensionMessages(
         const id = msg.id as number;
         os.setAgentTokens(id, msg.inputTokens as number, msg.outputTokens as number);
       } else if (msg.type === 'facilityProgress') {
+        facilitySocialRef.current = true;
+        enableAllFacilitySocial(os);
         setFacilityProgress({
           builtRooms: msg.builtRooms as number,
           totalRooms: msg.totalRooms as number,
-          phase: msg.phase as 'building' | 'operating',
+          phase: msg.phase as 'building' | 'homemaking' | 'operating',
+          homeSteps: msg.homeSteps as number | undefined,
+          totalHomeSteps: msg.totalHomeSteps as number | undefined,
+          sharedGoals: (msg.sharedGoals as string[] | undefined) ?? [],
+          missionBoard: msg.missionBoard as MissionBoardItem[] | undefined,
         });
+      } else if (msg.type === 'facilityBuild') {
+        facilitySocialRef.current = true;
+        const col = msg.col as number;
+        const row = msg.row as number;
+        const label = msg.label as string;
+        const agentIds = (msg.agentIds as number[]) ?? [];
+        const leadId = agentIds[0];
+        if (leadId !== undefined) {
+          focusIfWatching(os, leadId, col, row);
+        } else {
+          focusIfWatching(os, null, col, row);
+        }
+        const feedAgentId = leadId ?? agentIds[0];
+        if (feedAgentId !== undefined) {
+          pushFacilityFeed(os, feedAgentId, label, 'chat');
+        }
+        for (const agentId of agentIds) {
+          enableFacilitySocial(os, agentId);
+          os.visitBuildSite(agentId, col, row);
+          os.showChatBubble(agentId, label);
+        }
+      } else if (msg.type === 'facilityChat') {
+        facilitySocialRef.current = true;
+        const fromId = msg.fromId as number;
+        const toId = msg.toId as number | null | undefined;
+        const text = msg.text as string;
+        os.showChatBubble(fromId, text);
+        pushFacilityFeed(os, fromId, text, 'chat');
+        if (typeof toId === 'number' && toId !== fromId) {
+          os.visitAgent(toId, fromId);
+          focusIfWatching(os, toId);
+        } else {
+          focusIfWatching(os, fromId);
+        }
       }
     };
     const unsubscribe = transport.onMessage(handler);
@@ -638,5 +817,6 @@ export function useExtensionMessages(
     agentProviders,
     sandboxTiers,
     facilityProgress,
+    facilityFeed,
   };
 }

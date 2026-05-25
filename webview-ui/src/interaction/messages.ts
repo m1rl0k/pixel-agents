@@ -48,6 +48,11 @@ export interface AgentInputMessage {
   text: string;
 }
 
+export interface SwarmInputMessage {
+  type: 'swarmInput';
+  text: string;
+}
+
 export interface AgentInterruptMessage {
   type: 'agentInterrupt';
   id: number;
@@ -58,12 +63,20 @@ export interface StopSpawnedAgentMessage {
   id: number;
 }
 
+export interface PermissionReplyMessage {
+  type: 'permissionReply';
+  id: number;
+  approved: boolean;
+}
+
 /** Union of the interaction messages the webview emits. */
 export type InteractionClientMessage =
   | SpawnAgentMessage
   | AgentInputMessage
+  | SwarmInputMessage
   | AgentInterruptMessage
-  | StopSpawnedAgentMessage;
+  | StopSpawnedAgentMessage
+  | PermissionReplyMessage;
 
 /**
  * Typed boundary for sending interaction messages. The core ClientMessage union

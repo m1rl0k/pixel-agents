@@ -20,4 +20,6 @@ export { antigravityProvider } from './file/antigravity/antigravity.js';
 export { codexProvider } from './file/codex/codex.js';
 export type { ProviderCapability } from './registry.js';
 export { ProviderRegistry } from './registry.js';
-export { cursorFileProvider,cursorProvider } from './stream/cursor/cursor.js';
+export { cursorFileProvider, cursorProvider } from './stream/cursor/cursor.js';
+export { kimiProvider } from './stream/kimi/kimi.js';
+export { zaiGlmProvider } from './stream/zai/zai.js';

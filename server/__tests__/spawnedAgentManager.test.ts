@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentEvent, StreamProvider } from '../../core/src/provider.js';
 import { ProviderRegistry } from '../src/providers/registry.js';
@@ -38,8 +38,7 @@ function makeFakeProvider(): StreamProvider {
     permissionExemptTools: new Set<string>(),
     subagentToolNames: new Set<string>(),
     readingTools: new Set<string>(),
-    formatToolStatus: (toolName, input) =>
-      `${toolName}: ${(input as { cmd?: string })?.cmd ?? ''}`,
+    formatToolStatus: (toolName, input) => `${toolName}: ${(input as { cmd?: string })?.cmd ?? ''}`,
     buildLaunchCommand: () => ({ command: 'node', args: ['-e', CHILD_SCRIPT] }),
     parseStreamLine: (line): AgentEvent | null => {
       const trimmed = line.trim();
@@ -126,10 +125,7 @@ describe('SpawnedAgentManager (integration: real node child)', () => {
     // agentToolStart + agentStatus(active), then agentToolDone.
     manager.sendInput(id, 'ls');
 
-    const toolStart = await waitFor(
-      messages,
-      (m) => m.type === 'agentToolStart' && m.id === id,
-    );
+    const toolStart = await waitFor(messages, (m) => m.type === 'agentToolStart' && m.id === id);
     expect(toolStart.toolName).toBe('Run');
     expect(toolStart.status).toBe('Run: ls');
 
@@ -139,10 +135,68 @@ describe('SpawnedAgentManager (integration: real node child)', () => {
     );
     await waitFor(messages, (m) => m.type === 'agentToolDone' && m.id === id);
 
-    // stop() terminates the child and drops it from the map.
+    // stop() terminates the child, closes the character, and drops it from the map.
     manager.stop(id);
     expect(manager.has(id)).toBe(false);
     expect(manager.list()).not.toContain(id);
+    await waitFor(messages, (m) => m.type === 'agentClosed' && m.id === id);
+  });
+
+  it('keeps the agent slot after process exit and relaunches on the next sendInput', async () => {
+    const EXIT_AFTER_DONE_SCRIPT = `
+process.stdout.write(JSON.stringify({ k: 'start' }) + '\\n');
+let buf = '';
+process.stdin.on('data', (chunk) => {
+  buf += chunk.toString('utf-8');
+  let nl;
+  while ((nl = buf.indexOf('\\n')) !== -1) {
+    const line = buf.slice(0, nl);
+    buf = buf.slice(nl + 1);
+    process.stdout.write(JSON.stringify({ k: 'tool', cmd: line }) + '\\n');
+    process.stdout.write(JSON.stringify({ k: 'done' }) + '\\n');
+    process.exit(0);
+  }
+});
+process.stdin.resume();
+`;
+
+    const messages: Array<Record<string, unknown>> = [];
+    const registry = new ProviderRegistry();
+    const exitProvider: StreamProvider = {
+      ...makeFakeProvider(),
+      buildLaunchCommand: () => ({ command: 'node', args: ['-e', EXIT_AFTER_DONE_SCRIPT] }),
+    };
+    registry.register(exitProvider);
+
+    let nextId = 1;
+    manager = new SpawnedAgentManager({
+      registry,
+      emit: (msg) => messages.push(msg),
+      allocateId: () => nextId++,
+    });
+
+    const id = manager.spawn({
+      providerId: 'fake-stream',
+      sessionId: 'sess-exit',
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+
+    manager.sendInput(id, 'first-turn');
+    await waitFor(messages, (m) => m.type === 'agentToolDone' && m.id === id);
+    await waitFor(
+      messages,
+      (m) => m.type === 'agentStatus' && m.id === id && m.status === 'waiting',
+    );
+
+    expect(manager.has(id)).toBe(true);
+    expect(messages.some((m) => m.type === 'agentClosed' && m.id === id)).toBe(false);
+
+    manager.sendInput(id, 'second-turn');
+    await waitFor(
+      messages,
+      (m) => m.type === 'agentToolStart' && m.id === id && m.status === 'Run: second-turn',
+    );
   });
 
   it('throws for a non-stream provider id and for unknown ids', () => {
@@ -162,5 +216,85 @@ describe('SpawnedAgentManager (integration: real node child)', () => {
         sandbox: null,
       }),
     ).toThrow(/unknown provider/);
+  });
+
+  it('runs demo provider multi-step tool chain with matching toolEnd ids', async () => {
+    const messages: Array<Record<string, unknown>> = [];
+    const registry = new ProviderRegistry();
+    const { demoProvider } = await import('../src/providers/stream/demo/demo.js');
+    registry.register(demoProvider);
+
+    let nextId = 1;
+    manager = new SpawnedAgentManager({
+      registry,
+      emit: (msg) => messages.push(msg),
+      allocateId: () => nextId++,
+    });
+
+    const id = manager.spawn({
+      providerId: 'demo',
+      sessionId: 'demo-chain',
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    manager.sendInput(id, 'Review server/src/orchestratorManager.ts for dispatch pacing');
+
+    const toolStarts: Array<{ toolId: string; toolName: string }> = [];
+    const toolEnds: string[] = [];
+    const start = Date.now();
+    while (Date.now() - start < 5000) {
+      for (const m of messages) {
+        if (m.type === 'agentToolStart' && m.id === id && typeof m.toolId === 'string') {
+          if (!toolStarts.some((t) => t.toolId === m.toolId)) {
+            toolStarts.push({ toolId: m.toolId, toolName: String(m.toolName) });
+          }
+        }
+        if (m.type === 'agentToolDone' && m.id === id && typeof m.toolId === 'string') {
+          if (!toolEnds.includes(m.toolId)) toolEnds.push(m.toolId);
+        }
+      }
+      if (toolStarts.length >= 4 && toolEnds.length >= 4) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    expect(toolStarts.map((t) => t.toolName)).toEqual(['Read', 'Grep', 'Write', 'Bash']);
+    for (const startEv of toolStarts) {
+      expect(toolEnds).toContain(startEv.toolId);
+    }
+  }, 8000);
+
+  it('resync re-emits agentCreated with seatId and folderName', () => {
+    const messages: Array<Record<string, unknown>> = [];
+    const registry = new ProviderRegistry();
+    registry.register(makeFakeProvider());
+    manager = new SpawnedAgentManager({
+      registry,
+      emit: (msg) => messages.push(msg),
+      allocateId: () => 42,
+    });
+
+    manager.spawn({
+      providerId: 'fake-stream',
+      sessionId: 'sess-resync',
+      cwd: process.cwd(),
+      sandbox: null,
+      seatId: 'room-3-chair',
+      folderName: 'Worker #3',
+    });
+
+    const send = vi.fn();
+    manager.resync(send);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'agentCreated',
+        id: 42,
+        seatId: 'room-3-chair',
+        folderName: 'Worker #3',
+      }),
+    );
   });
 });

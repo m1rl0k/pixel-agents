@@ -11,7 +11,11 @@ import {
   BUTTON_RADIUS_ZOOM_FACTOR,
   CHARACTER_SITTING_OFFSET_PX,
   CHARACTER_Z_SORT_OFFSET,
+  CHAT_BUBBLE_BG_COLOR,
+  CHAT_BUBBLE_BORDER_COLOR,
+  CHAT_BUBBLE_TEXT_COLOR,
   DELETE_BUTTON_BG,
+  FACILITY_CHAT_FADE_SEC,
   FALLBACK_FLOOR_COLOR,
   GHOST_BORDER_HOVER_FILL,
   GHOST_BORDER_HOVER_STROKE,
@@ -22,6 +26,7 @@ import {
   GHOST_VALID_TINT,
   GRID_LINE_COLOR,
   HOVERED_OUTLINE_ALPHA,
+  matrixGreenBright,
   OUTLINE_Z_SORT_OFFSET,
   ROTATE_BUTTON_BG,
   SEAT_AVAILABLE_COLOR,
@@ -116,6 +121,7 @@ export function renderScene(
   zoom: number,
   selectedAgentId: number | null,
   hoveredAgentId: number | null,
+  newFurnitureTimers?: ReadonlyMap<string, number>,
 ): void {
   const drawables: ZDrawable[] = [];
 
@@ -124,6 +130,7 @@ export function renderScene(
     const cached = getCachedSprite(f.sprite, zoom);
     const fx = offsetX + f.x * zoom;
     const fy = offsetY + f.y * zoom;
+    const timer = f.uid && newFurnitureTimers ? newFurnitureTimers.get(f.uid) : undefined;
     if (f.mirrored) {
       drawables.push({
         zY: f.zY,
@@ -133,6 +140,13 @@ export function renderScene(
           c.scale(-1, 1);
           c.drawImage(cached, 0, 0);
           c.restore();
+
+          if (timer !== undefined) {
+            c.save();
+            c.fillStyle = matrixGreenBright(0.4 * (timer / 0.4));
+            c.fillRect(fx, fy, cached.width, cached.height);
+            c.restore();
+          }
         },
       });
     } else {
@@ -140,6 +154,13 @@ export function renderScene(
         zY: f.zY,
         draw: (c) => {
           c.drawImage(cached, fx, fy);
+
+          if (timer !== undefined) {
+            c.save();
+            c.fillStyle = matrixGreenBright(0.4 * (timer / 0.4));
+            c.fillRect(fx, fy, cached.width, cached.height);
+            c.restore();
+          }
         },
       });
     }
@@ -496,6 +517,46 @@ function renderBubbles(
   for (const ch of characters) {
     if (!ch.bubbleType) continue;
 
+    const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
+    const anchorY = ch.y + sittingOff;
+    const headX = offsetX + ch.x * zoom;
+    const headY = offsetY + (anchorY - BUBBLE_VERTICAL_OFFSET_PX) * zoom;
+
+    if (ch.bubbleType === 'chat' && ch.bubbleText) {
+      const fontSize = Math.max(8, Math.round(7 * zoom));
+      ctx.save();
+      ctx.font = `${fontSize}px monospace`;
+      const pad = 4 * zoom;
+      const maxW = 120 * zoom;
+      const lines = wrapChatLines(ch.bubbleText, maxW, ctx);
+      const lineH = fontSize + 2;
+      const boxH = lines.length * lineH + pad * 2;
+      const boxW = Math.min(
+        maxW,
+        Math.max(...lines.map((l) => ctx.measureText(l).width), 0) + pad * 2,
+      );
+      const boxX = Math.round(headX - boxW / 2);
+      const boxY = Math.round(headY - boxH - 4 * zoom);
+      let alpha = 1;
+      if (ch.bubbleTimer < FACILITY_CHAT_FADE_SEC) {
+        alpha = Math.max(0.2, ch.bubbleTimer / FACILITY_CHAT_FADE_SEC);
+      }
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = CHAT_BUBBLE_BG_COLOR;
+      ctx.strokeStyle = CHAT_BUBBLE_BORDER_COLOR;
+      ctx.lineWidth = Math.max(1, zoom);
+      ctx.fillRect(boxX, boxY, boxW, boxH);
+      ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+      ctx.fillStyle = CHAT_BUBBLE_TEXT_COLOR;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], boxX + pad, boxY + pad + i * lineH);
+      }
+      ctx.restore();
+      continue;
+    }
+
     const sprite =
       ch.bubbleType === 'permission' ? BUBBLE_PERMISSION_SPRITE : BUBBLE_WAITING_SPRITE;
 
@@ -506,10 +567,6 @@ function renderBubbles(
     }
 
     const cached = getCachedSprite(sprite, zoom);
-    // Position: centered above the character's head
-    // Character is anchored bottom-center at (ch.x, ch.y), sprite is 16x24
-    // Place bubble above head with a small gap; follow sitting offset
-    const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
     const bubbleX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
     const bubbleY = Math.round(
       offsetY + (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX) * zoom - cached.height - 1 * zoom,
@@ -520,6 +577,23 @@ function renderBubbles(
     ctx.drawImage(cached, bubbleX, bubbleY);
     ctx.restore();
   }
+}
+
+function wrapChatLines(text: string, maxWidth: number, ctx: CanvasRenderingContext2D): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length > 0 ? lines : [text];
 }
 
 export interface ButtonBounds {
@@ -582,6 +656,7 @@ export function renderFrame(
   tileColors?: Array<ColorValue | null>,
   layoutCols?: number,
   layoutRows?: number,
+  newFurnitureTimers?: ReadonlyMap<string, number>,
 ): { offsetX: number; offsetY: number } {
   // Clear
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -620,7 +695,17 @@ export function renderFrame(
   // Draw walls + furniture + characters (z-sorted)
   const selectedId = selection?.selectedAgentId ?? null;
   const hoveredId = selection?.hoveredAgentId ?? null;
-  renderScene(ctx, allFurniture, characters, offsetX, offsetY, zoom, selectedId, hoveredId);
+  renderScene(
+    ctx,
+    allFurniture,
+    characters,
+    offsetX,
+    offsetY,
+    zoom,
+    selectedId,
+    hoveredId,
+    newFurnitureTimers,
+  );
 
   // Speech bubbles (always on top of characters)
   renderBubbles(ctx, characters, offsetX, offsetY, zoom);

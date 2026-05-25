@@ -6,7 +6,11 @@ import * as path from 'path';
 
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import type { AssetCache, SetHooksEnabledSideEffect } from './clientMessageHandler.js';
+import type {
+  AssetCache,
+  OrchestratorRef,
+  SetHooksEnabledSideEffect,
+} from './clientMessageHandler.js';
 import { SERVER_JSON_DIR, SERVER_JSON_NAME } from './constants.js';
 import { createHttpServer } from './httpServer.js';
 import type { ProviderRegistry } from './providers/registry.js';
@@ -37,8 +41,7 @@ type HookEventCallback = (providerId: string, event: Record<string, unknown>) =>
  * - `GET /ws` -- WebSocket for real-time agent state (auth required)
  *
  * Discovery: writes `~/.pixel-agents/server.json` with port, PID, and auth token.
- * Multi-window: second VS Code window detects running server via server.json and
- * reuses it (does not start a second server).
+ * A second process detects the running server via server.json and reuses it.
  */
 export class PixelAgentsServer {
   private app: FastifyInstance | null = null;
@@ -58,7 +61,6 @@ export class PixelAgentsServer {
   async start(options?: {
     store?: AgentStateStore;
     runtime?: AgentRuntime;
-    embedded?: boolean;
     host?: string;
     port?: number;
     staticDir?: string;
@@ -66,6 +68,7 @@ export class PixelAgentsServer {
     onSetHooksEnabled?: SetHooksEnabledSideEffect;
     spawnManager?: SpawnedAgentManager;
     registry?: ProviderRegistry;
+    orchestratorRef?: OrchestratorRef;
   }): Promise<ServerConfig> {
     // Check if another instance already has a server running
     const existing = this.readServerJson();
@@ -83,7 +86,6 @@ export class PixelAgentsServer {
     const store = options?.store;
 
     const { app, port } = await createHttpServer({
-      embedded: options?.embedded ?? true,
       host: options?.host,
       port: options?.port,
       token,
@@ -95,6 +97,7 @@ export class PixelAgentsServer {
       onSetHooksEnabled: options?.onSetHooksEnabled,
       spawnManager: options?.spawnManager,
       registry: options?.registry,
+      orchestratorRef: options?.orchestratorRef,
     });
 
     this.app = app;

@@ -18,6 +18,17 @@ export const WANDER_MOVES_BEFORE_REST_MAX = 6;
 export const SEAT_REST_MIN_SEC = 120.0;
 export const SEAT_REST_MAX_SEC = 240.0;
 
+/** Facility social roam — agents wander the office, not their chair cells. */
+export const FACILITY_WANDER_MOVES_MIN = 14;
+export const FACILITY_WANDER_MOVES_MAX = 28;
+export const FACILITY_WANDER_PAUSE_MIN_SEC = 0.6;
+export const FACILITY_WANDER_PAUSE_MAX_SEC = 2.0;
+export const FACILITY_SEAT_REST_MIN_SEC = 8.0;
+export const FACILITY_SEAT_REST_MAX_SEC = 18.0;
+export const FACILITY_CHAT_BUBBLE_SEC = 4.5;
+export const FACILITY_CHAT_FADE_SEC = 0.6;
+export const FACILITY_CHAT_BUBBLE_MAX_CHARS = 48;
+
 // ── Matrix Effect ────────────────────────────────────────────
 export const MATRIX_EFFECT_DURATION_SEC = 0.3;
 export const MATRIX_TRAIL_LENGTH = 6;
@@ -147,21 +158,26 @@ export const SANDBOX_TIER_CONTAINER = 'container';
 
 /** Gamified orchestrator ↔ worker vocabulary (spawned agents serve the orchestrator). */
 export const ORCHESTRATOR_LABEL = 'Orchestrator';
+export const ORCHESTRATOR_ROLE = 'Swarm command — dispatches goals to all workers';
 export const WORKER_LABEL = 'Worker';
 export const SPAWN_WORKER_BUTTON = '+ Worker';
 export const SPAWN_WORKER_TITLE = 'Deploy a worker agent under orchestrator control';
-export const SANDBOX_SECTION_LABEL = 'Restraints';
+export const SANDBOX_SECTION_LABEL = 'Runtime Boundary';
 export const SANDBOX_TIER_NONE_LABEL = 'Unsandboxed';
 export const SANDBOX_TIER_CONTAINER_LABEL = 'Sandboxed';
 export const WORKER_STATUS_ON_TASK = 'On task';
 export const WORKER_STATUS_AWAITING_ORDERS = 'Awaiting orders';
 export const WORKER_STATUS_STANDING_BY = 'Standing by';
 export const WORKER_STATUS_NEEDS_CLEARANCE = 'Needs clearance';
-export const WORKER_INPUT_PLACEHOLDER = 'Issue order…';
+export const WORKER_INPUT_PLACEHOLDER = 'Issue any task...';
 export const WORKER_DISMISS_LABEL = 'Dismiss';
 export const WORKER_HALT_LABEL = 'Halt';
 export const WORKER_SEND_LABEL = 'Send';
+export const WORKER_SWARM_LABEL = 'Swarm';
 export const WORKER_REPORTS_TO = 'Reports to Orchestrator';
+export const WORKER_APPROVE_LABEL = 'Approve';
+export const WORKER_DENY_LABEL = 'Deny';
+export const WORKER_CLEARANCE_PROMPT = 'This worker needs clearance for a tool action.';
 export const SPAWN_ERROR_DEFAULT = 'Failed to deploy worker';
 
 // ── Agent Teams ─────────────────────────────────────────────
@@ -180,8 +196,45 @@ export const TEAM_LEAD_COLOR = '#ffd700';
 export const TEAM_ROLE_COLOR = '#66aaff';
 
 // ── SpacetimeDB Facility ──────────────────────────────────────
-export const FACILITY_BANNER_TITLE = 'SPACETIMEDB WORKER FACILITY';
-export const FACILITY_BANNER_TAGLINE = "Clockwork Labs' open-source relational database (RDBMS)";
-export const FACILITY_PHASE_BUILDING = 'Carving worker rooms & provisioning sandboxes...';
-export const FACILITY_PHASE_OPERATING = 'All sandbox environments live. Worker dispatch loop engaged.';
+export const FACILITY_BANNER_TITLE = 'PIXEL AGENTS SWARM';
+export const FACILITY_BANNER_TAGLINE =
+  'Browser-floor orchestrator — agents roam, collaborate, and build together.';
+export const FACILITY_PHASE_BUILDING = 'Opening connected worker rooms and shared corridors...';
+export const FACILITY_PHASE_HOMEMAKING =
+  'Workers building their shared home together in the commons...';
+export const FACILITY_PHASE_OPERATING = 'All workers live. Swarm collaboration loop engaged.';
 
+// ── Chat Bubbles ──────────────────────────────────────────────
+export const CHAT_BUBBLE_BG_COLOR = 'rgba(20, 18, 40, 0.92)';
+export const CHAT_BUBBLE_BORDER_COLOR = '#7c6cff';
+export const CHAT_BUBBLE_TEXT_COLOR = '#e8e6ff';
+
+export const FACILITY_COMMAND_LABEL = 'Swarm Console';
+export const FACILITY_COMMAND_CHANNEL_LABEL = 'Broadcast channel';
+export const SWARM_COMMAND_PLACEHOLDER = 'Mission, constraint, target, or question...';
+export const SWARM_COMMAND_SEND = 'Dispatch';
+export const SWARM_DISPATCHED_LABEL = 'Dispatched!';
+export const SWARM_DISPATCHED_FEEDBACK_MS = 2000;
+export const SWARM_COMMAND_HINT = '';
+export const FACILITY_MISSION_BOARD_LABEL = 'Mission board · live swarm goals';
+export const FACILITY_MISSION_BOARD_EMPTY = 'Awaiting pinned swarm goals.';
+export const FACILITY_WATCH_ON_LABEL = 'Follow';
+export const FACILITY_WATCH_OFF_LABEL = 'Roam';
+export const FACILITY_FEED_TITLE = 'Signal Deck';
+export const FACILITY_FEED_EMPTY = 'No live transmissions.';
+export const FACILITY_FEED_MAX_ITEMS = 16;
+export const SWARM_QUICK_SCOUT_LABEL = 'Scout';
+export const SWARM_QUICK_ALIGN_LABEL = 'Align';
+export const SWARM_QUICK_ACT_LABEL = 'Act';
+export const SWARM_QUICK_TEST = 'Scout the situation, constraints, and risks';
+export const SWARM_QUICK_SYNC = 'Align roles, facts, and next actions across the swarm';
+export const SWARM_QUICK_SHIP = 'Execute the smallest useful next step and report results';
+export const FACILITY_PROGRESS_TRACK_BG = 'rgba(10, 10, 20, 0.85)';
+export const FACILITY_PROGRESS_FILL = '#7c6cff';
+
+// ── Agent Roster Panel ────────────────────────────────────────
+export const ROSTER_LABEL = 'Roster';
+export const ROSTER_TITLE = 'View live agents, providers, and sandbox tiers';
+export const ROSTER_HEADER = 'Agents';
+export const ROSTER_LIVE_SUFFIX = 'live';
+export const ROSTER_EMPTY = 'No agents deployed.';

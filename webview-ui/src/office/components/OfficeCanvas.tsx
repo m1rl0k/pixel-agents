@@ -221,7 +221,7 @@ export function OfficeCanvas({
           }
         }
 
-        // Camera follow: smoothly center on followed agent
+        // Camera follow: smoothly center on followed agent or build-site tile
         if (officeState.cameraFollowId !== null) {
           const followCh = officeState.characters.get(officeState.cameraFollowId);
           if (followCh) {
@@ -243,6 +243,30 @@ export function OfficeCanvas({
                 y: panRef.current.y + dy * CAMERA_FOLLOW_LERP,
               };
             }
+          }
+        } else if (
+          officeState.cameraFollowTileCol !== null &&
+          officeState.cameraFollowTileRow !== null
+        ) {
+          const layout = officeState.getLayout();
+          const mapW = layout.cols * TILE_SIZE * zoom;
+          const mapH = layout.rows * TILE_SIZE * zoom;
+          const cx = officeState.cameraFollowTileCol * TILE_SIZE + TILE_SIZE / 2;
+          const cy = officeState.cameraFollowTileRow * TILE_SIZE + TILE_SIZE / 2;
+          const targetX = mapW / 2 - cx * zoom;
+          const targetY = mapH / 2 - cy * zoom;
+          const dx = targetX - panRef.current.x;
+          const dy = targetY - panRef.current.y;
+          if (
+            Math.abs(dx) < CAMERA_FOLLOW_SNAP_THRESHOLD &&
+            Math.abs(dy) < CAMERA_FOLLOW_SNAP_THRESHOLD
+          ) {
+            panRef.current = { x: targetX, y: targetY };
+          } else {
+            panRef.current = {
+              x: panRef.current.x + dx * CAMERA_FOLLOW_LERP,
+              y: panRef.current.y + dy * CAMERA_FOLLOW_LERP,
+            };
           }
         }
 
@@ -270,6 +294,7 @@ export function OfficeCanvas({
           officeState.getLayout().tileColors,
           officeState.getLayout().cols,
           officeState.getLayout().rows,
+          officeState.newFurnitureTimers,
         );
         offsetRef.current = { x: offsetX, y: offsetY };
 
@@ -507,6 +532,8 @@ export function OfficeCanvas({
         e.preventDefault();
         // Break camera follow on manual pan
         officeState.cameraFollowId = null;
+        officeState.cameraFollowTileCol = null;
+        officeState.cameraFollowTileRow = null;
         isPanningRef.current = true;
         panStartRef.current = {
           mouseX: e.clientX,

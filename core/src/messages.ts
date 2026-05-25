@@ -26,6 +26,9 @@ export type ServerMessage =
   | AgentTeamInfo
   | AgentTokenUsage
   | LayoutLoaded
+  | FacilityProgress
+  | FacilityBuild
+  | FacilityChat
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
   | FloorTilesLoaded
@@ -179,6 +182,45 @@ export interface LayoutLoaded {
   type: 'layoutLoaded';
   layout: Record<string, any> | null;
   wasReset?: boolean;
+  facilityLayout?: boolean;
+}
+
+export interface FacilityProgress {
+  type: 'facilityProgress';
+  builtRooms: number;
+  totalRooms: number;
+  phase: AnonymousSchema_78;
+  homeSteps?: number;
+  totalHomeSteps?: number;
+  sharedGoals?: string[];
+  missionBoard?: AnonymousSchema_84[];
+}
+
+export type AnonymousSchema_78 = 'building' | 'homemaking' | 'operating';
+
+export interface AnonymousSchema_84 {
+  id: string;
+  title: string;
+  status: AnonymousSchema_87;
+  assignedWorkerId?: number;
+}
+
+export type AnonymousSchema_87 = 'pending' | 'processing' | 'completed' | 'accepted' | 'failed';
+
+export interface FacilityBuild {
+  type: 'facilityBuild';
+  step: number;
+  label: string;
+  col: number;
+  row: number;
+  agentIds: number[];
+}
+
+export interface FacilityChat {
+  type: 'facilityChat';
+  fromId: number;
+  toId?: number;
+  text: string;
 }
 
 export interface FurnitureAssetsLoaded {

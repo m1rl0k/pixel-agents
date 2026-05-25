@@ -30,6 +30,13 @@
   --color-reset-text: #ecc;
   --color-danger: #d14249;
   --color-warning: #ff8d14;
+  --color-facility-cyan: #46d9ff;
+  --color-facility-amber: #ffbf55;
+  --color-facility-green: #8cff9a;
+  --color-facility-red: #ff6b7a;
+  --color-facility-panel-bg: rgba(22, 22, 38, 0.94);
+  --color-facility-panel-hi: rgba(58, 62, 92, 0.7);
+  --color-facility-panel-line: rgba(116, 111, 255, 0.28);
 
   /* Status */
   --color-status-permission: #cca700;
@@ -79,6 +86,10 @@
   --color-reset-text: var(--color-reset-text);
   --color-danger: var(--color-danger);
   --color-warning: var(--color-warning);
+  --color-facility-cyan: var(--color-facility-cyan);
+  --color-facility-amber: var(--color-facility-amber);
+  --color-facility-green: var(--color-facility-green);
+  --color-facility-red: var(--color-facility-red);
   --color-status-permission: var(--color-status-permission);
   --color-status-active: var(--color-status-active);
   --color-status-success: var(--color-status-success);
@@ -115,6 +126,185 @@
   .pixel-pulse {
     animation: pixel-pulse 1.5s ease-in-out infinite;
   }
+
+  .facility-watch-feed {
+    top: clamp(96px, 14vh, 144px);
+    left: clamp(12px, 2.5vw, 40px);
+    width: min(320px, calc(100vw - 32px));
+    max-height: min(520px, calc(100vh - 210px));
+  }
+
+  .facility-feed-panel,
+  .swarm-command-panel {
+    background:
+      linear-gradient(180deg, var(--color-facility-panel-hi), transparent 32px),
+      linear-gradient(90deg, rgba(70, 217, 255, 0.08), transparent 34%),
+      var(--color-facility-panel-bg);
+    box-shadow:
+      var(--shadow-pixel),
+      inset 0 0 0 1px var(--color-facility-panel-line);
+  }
+
+  .facility-feed-header {
+    @apply px-8 py-5 border-b border-border;
+  }
+
+  .facility-feed-activity span {
+    width: 4px;
+    height: 14px;
+    background: var(--color-border);
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.3);
+  }
+
+  .facility-feed-activity span.is-active {
+    background: var(--color-facility-green);
+    animation: facility-signal 1.4s steps(2, end) infinite;
+  }
+
+  .facility-feed-goals {
+    @apply px-8 py-5 border-b border-border;
+    background: rgba(255, 191, 85, 0.05);
+  }
+
+  .facility-feed-empty {
+    @apply px-8 py-8;
+  }
+
+  .facility-feed-list {
+    scrollbar-color: var(--color-accent-bright) var(--color-bg-dark);
+  }
+
+  .facility-feed-item {
+    @apply relative px-8 py-5 border-b border-border/40;
+    background: transparent;
+  }
+
+  .facility-feed-item:hover,
+  .facility-feed-item:focus-visible {
+    background: rgba(70, 217, 255, 0.08);
+    outline: none;
+  }
+
+  .facility-feed-item:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--color-facility-cyan);
+  }
+
+  .facility-feed-rail {
+    @apply absolute left-0 top-0 bottom-0;
+    width: 3px;
+    background: var(--color-accent-bright);
+  }
+
+  .facility-feed-item-tool .facility-feed-rail,
+  .facility-feed-item-tool .facility-feed-glyph,
+  .facility-feed-item-tool .facility-feed-kind {
+    color: var(--color-facility-amber);
+    background: var(--color-facility-amber);
+  }
+
+  .facility-feed-item-message .facility-feed-rail,
+  .facility-feed-item-message .facility-feed-glyph,
+  .facility-feed-item-message .facility-feed-kind {
+    color: var(--color-facility-cyan);
+    background: var(--color-facility-cyan);
+  }
+
+  .facility-feed-item-chat .facility-feed-rail,
+  .facility-feed-item-chat .facility-feed-glyph,
+  .facility-feed-item-chat .facility-feed-kind {
+    color: var(--color-facility-green);
+    background: var(--color-facility-green);
+  }
+
+  .facility-feed-glyph,
+  .facility-feed-kind {
+    background: transparent !important;
+  }
+
+  .facility-feed-kind {
+    @apply uppercase;
+    font-size: 11px;
+  }
+
+  .swarm-command-shell {
+    bottom: 28px;
+    width: min(620px, calc(100vw - 48px));
+    transform: translateX(-50%);
+  }
+
+  .swarm-command-panel {
+    @apply px-10 py-6 gap-0 overflow-hidden;
+  }
+
+  .swarm-command-header {
+    @apply pb-5 border-b border-border;
+  }
+
+  .swarm-command-status {
+    min-width: 72px;
+    text-align: right;
+  }
+
+  .swarm-command-quickbar {
+    @apply py-4 border-b border-border overflow-x-auto;
+  }
+
+  .swarm-command-preset {
+    @apply shrink-0;
+    border-color: var(--color-facility-panel-line);
+    color: var(--color-text);
+    background: rgba(70, 217, 255, 0.06);
+  }
+
+  .swarm-command-preset:hover,
+  .swarm-command-preset:focus-visible {
+    background: rgba(70, 217, 255, 0.14);
+    color: var(--color-facility-cyan);
+  }
+
+  .swarm-command-entry {
+    @apply pt-5;
+  }
+
+  .swarm-command-input-wrap {
+    @apply border-2 border-border px-8 py-4 bg-bg-dark;
+    gap: 8px;
+  }
+
+  .swarm-command-input-wrap:focus-within {
+    border-color: var(--color-facility-cyan);
+    box-shadow: inset 0 0 0 1px rgba(70, 217, 255, 0.35);
+  }
+
+  .swarm-command-input::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
+@media (max-width: 760px) {
+  .facility-watch-feed {
+    top: 72px;
+    width: min(300px, calc(100vw - 24px));
+    max-height: 34vh;
+  }
+
+  .swarm-command-shell {
+    bottom: 18px;
+    width: calc(100vw - 24px);
+  }
+
+  .swarm-command-panel {
+    @apply px-6 py-5;
+  }
+
+  .swarm-command-header,
+  .swarm-command-entry {
+    @apply gap-3;
+  }
+
+  .swarm-command-entry {
+    @apply flex-col;
+  }
 }
 
 @keyframes pixel-pulse {
@@ -124,5 +314,15 @@
   }
   50% {
     opacity: 0.3;
+  }
+}
+
+@keyframes facility-signal {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
   }
 }

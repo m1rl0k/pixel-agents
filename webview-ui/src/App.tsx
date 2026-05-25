@@ -6,10 +6,11 @@ import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { DebugView } from './components/DebugView.js';
 import { EditActionBar } from './components/EditActionBar.js';
-import { FacilityBanner } from './components/FacilityBanner.js';
+import { FacilityWatchFeed } from './components/FacilityWatchFeed.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { SpawnErrorToast } from './components/SpawnErrorToast.js';
+import { SwarmCommandBar } from './components/SwarmCommandBar.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
@@ -44,7 +45,6 @@ function App() {
   useEffect(() => {
     // browserMock is for Vite dev mode only (UI prototyping without a server).
     // In standalone server mode, the server sends all state over WebSocket.
-    // In VS Code mode, the extension sends all state via postMessage.
     if (isBrowserRuntime && import.meta.env.DEV) {
       void import('./browserMock.js').then(({ dispatchMockMessages }) => dispatchMockMessages());
     }
@@ -67,7 +67,6 @@ function App() {
     layoutReady,
     layoutWasReset,
     loadedAssets,
-    workspaceFolders,
     externalAssetDirectories,
     lastSeenVersion,
     extensionVersion,
@@ -84,7 +83,37 @@ function App() {
     agentProviders,
     sandboxTiers,
     facilityProgress,
+    facilityFeed,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
+
+  const [facilityWatchMode, setFacilityWatchMode] = useState(true);
+  useEffect(() => {
+    getOfficeState().facilityWatchMode = facilityWatchMode;
+  }, [facilityWatchMode]);
+
+  const handleToggleFacilityWatch = useCallback(() => {
+    setFacilityWatchMode((prev) => {
+      const next = !prev;
+      getOfficeState().facilityWatchMode = next;
+      return next;
+    });
+  }, []);
+
+  // Pan camera during room expansion; homemaking/operating follow via facilityBuild + tool events
+  const builtRooms = facilityProgress?.builtRooms;
+  const facilityPhase = facilityProgress?.phase;
+  useEffect(() => {
+    if (facilityPhase !== 'building' || builtRooms === undefined) return;
+    const os = getOfficeState();
+    if (!os.facilityWatchMode) return;
+    const followLabel = builtRooms > 0 ? `Worker #${builtRooms}` : 'ORCHESTRATOR';
+    for (const ch of os.characters.values()) {
+      if (ch.folderName === followLabel) {
+        os.setCameraFocus(ch.id);
+        break;
+      }
+    }
+  }, [builtRooms, facilityPhase]);
 
   // Show migration notice once layout reset is detected
   const [migrationNoticeDismissed, setMigrationNoticeDismissed] = useState(false);
@@ -160,9 +189,27 @@ function App() {
     setPanelAgentId(selectedAgent);
   }, [selectedAgent]);
 
-  const handleAgentSelected = useCallback((id: number | null) => {
-    // Sub-agents focus their parent terminal but should not open a panel.
-    if (id !== null && getOfficeState().subagentMeta.has(id)) return;
+  const handleAgentSelected = useCallback(
+    (id: number | null) => {
+      // Sub-agents focus their parent terminal but should not open a panel.
+      if (id !== null && getOfficeState().subagentMeta.has(id)) return;
+      setPanelAgentId(id);
+      if (id !== null && facilityProgress) {
+        const os = getOfficeState();
+        os.facilityWatchMode = true;
+        os.setCameraFocus(id);
+        setFacilityWatchMode(true);
+      }
+    },
+    [facilityProgress],
+  );
+
+  const handleFeedSelectAgent = useCallback((id: number) => {
+    const os = getOfficeState();
+    os.facilityWatchMode = true;
+    os.setCameraFocus(id);
+    setFacilityWatchMode(true);
+    transport.send({ type: 'focusAgent', id });
     setPanelAgentId(id);
   }, []);
 
@@ -177,6 +224,12 @@ function App() {
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard;
+
+  const panelCharacter =
+    panelAgentId !== null ? officeState.characters.get(panelAgentId) : undefined;
+  const panelDisplayName =
+    panelCharacter?.folderName ?? (panelAgentId !== null ? `Worker #${panelAgentId}` : '');
+  const panelIsOrchestrator = panelCharacter?.folderName === 'ORCHESTRATOR';
 
   // Resolve the panel's provider display name (string | null).
   const panelProviderName =
@@ -234,7 +287,20 @@ function App() {
 
       {!isDebugMode ? (
         <>
-          {facilityProgress && <FacilityBanner progress={facilityProgress} />}
+          {facilityProgress && (
+            <FacilityWatchFeed
+              items={facilityFeed}
+              missionBoard={facilityProgress.missionBoard}
+              sharedGoals={facilityProgress.sharedGoals}
+              onSelectAgent={handleFeedSelectAgent}
+            />
+          )}
+          {facilityProgress && (
+            <SwarmCommandBar
+              watchMode={facilityWatchMode}
+              onToggleWatch={handleToggleFacilityWatch}
+            />
+          )}
           <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} />
 
           {/* Vignette overlay */}
@@ -249,7 +315,7 @@ function App() {
 
           {showRotateHint && (
             <div
-              className="absolute left-1/2 -translate-x-1/2 z-11 bg-accent-bright text-white text-sm py-3 px-8 rounded-none border-2 border-accent shadow-pixel pointer-events-none whitespace-nowrap"
+              className="absolute left-1/2 -translate-x-1/2 z-20 bg-accent-bright text-white text-sm py-3 px-8 rounded-none border-2 border-accent shadow-pixel pointer-events-none whitespace-nowrap"
               style={{ top: editor.isDirty ? 64 : 8 }}
             >
               Rotate (R)
@@ -293,12 +359,14 @@ function App() {
             zoom={editor.zoom}
             panRef={editor.panRef}
             onCloseAgent={handleCloseAgent}
-            alwaysShowOverlay={alwaysShowOverlay}
+            alwaysShowOverlay={alwaysShowOverlay || facilityProgress !== null}
           />
 
           {panelAgentId !== null && (
             <AgentPanel
               agentId={panelAgentId}
+              displayName={panelDisplayName}
+              isOrchestrator={panelIsOrchestrator}
               providerName={panelProviderName}
               sandboxTier={sandboxTiers[panelAgentId]}
               status={agentStatuses[panelAgentId] ?? 'idle'}
@@ -351,7 +419,7 @@ function App() {
       <Modal
         isOpen={isHooksInfoOpen}
         onClose={() => setIsHooksInfoOpen(false)}
-        title="Instant Detection is ON"
+        title="Agent Event Hooks are ON"
         zIndex={52}
       >
         <div className="text-base text-text px-10" style={{ lineHeight: 1.4 }}>
@@ -362,8 +430,8 @@ function App() {
             <li className="text-sm mb-2">Sound notifications play immediately</li>
           </ul>
           <p className="mb-12 text-text-muted">
-            This works through Claude Code Hooks, small event listeners that notify Pixel Agents
-            whenever something happens in your Claude sessions.
+            This works through provider event hooks, small listeners that notify Pixel Agents
+            whenever something happens in external agent sessions.
           </p>
           <div className="text-center">
             <button
@@ -374,18 +442,16 @@ function App() {
             </button>
           </div>
           <p className="mt-8 text-xs text-text-muted text-center">
-            To disable, go to Settings {'>'} Instant Detection
+            To disable, go to Settings {'>'} Agent Event Hooks
           </p>
         </div>
       </Modal>
 
       <BottomToolbar
         isEditMode={editor.isEditMode}
-        onOpenClaude={editor.handleOpenClaude}
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
-        workspaceFolders={workspaceFolders}
         providers={providers}
       />
 

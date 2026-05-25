@@ -28,6 +28,22 @@ export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
 export interface PixelAgentsConfig {
   settings: AdapterSettings;
   externalAssetDirectories: string[];
+  /** Encrypted-at-rest provider API keys. Never sent to the client as values. */
+  providerKeys?: Record<string, string>;
+}
+
+// ── Provider key allow-list ──────────────────────────────────────────────────
+
+export const ALLOWED_PROVIDER_KEYS = [
+  'KIMI_API_KEY',
+  'ZAI_GLM_5_CODING_API_KEY',
+  'ZAI_GLM_5_1_CODING_API_KEY',
+] as const;
+
+export type ProviderKeyName = (typeof ALLOWED_PROVIDER_KEYS)[number];
+
+export function isAllowedProviderKey(name: string): name is ProviderKeyName {
+  return (ALLOWED_PROVIDER_KEYS as readonly string[]).includes(name);
 }
 
 /** @deprecated Legacy on-disk shape — merged into `settings` on read. */
@@ -119,6 +135,42 @@ export function readConfig(): PixelAgentsConfig {
       settings: { ...DEFAULT_ADAPTER_SETTINGS },
       externalAssetDirectories: [],
     };
+  }
+}
+
+/** Persist a single provider API key by name. */
+export function writeProviderKey(name: string, value: string): void {
+  const cfg = readConfig();
+  cfg.providerKeys = { ...(cfg.providerKeys ?? {}), [name]: value };
+  writeConfig(cfg);
+}
+
+/**
+ * Return which provider keys are currently set (non-empty string) — boolean only.
+ * NEVER includes the key values themselves.
+ */
+export function getProviderKeysPresence(): Record<string, boolean> {
+  const cfg = readConfig();
+  const keys = cfg.providerKeys ?? {};
+  const result: Record<string, boolean> = {};
+  for (const k of ALLOWED_PROVIDER_KEYS) {
+    result[k] = typeof keys[k] === 'string' && keys[k].length > 0;
+  }
+  return result;
+}
+
+/**
+ * Apply stored provider keys to process.env so providers can read them.
+ * Call once at startup. NEVER logs values.
+ */
+export function applyProviderKeysToEnv(): void {
+  const cfg = readConfig();
+  const keys = cfg.providerKeys ?? {};
+  for (const k of ALLOWED_PROVIDER_KEYS) {
+    const val = keys[k];
+    if (typeof val === 'string' && val.length > 0) {
+      process.env[k] = val;
+    }
   }
 }
 

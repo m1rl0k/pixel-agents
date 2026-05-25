@@ -101,6 +101,9 @@ components:
         - $ref: '#/components/schemas/AgentTokenUsage'
         # Layout
         - $ref: '#/components/schemas/LayoutLoaded'
+        - $ref: '#/components/schemas/FacilityProgress'
+        - $ref: '#/components/schemas/FacilityBuild'
+        - $ref: '#/components/schemas/FacilityChat'
         # Assets
         - $ref: '#/components/schemas/FurnitureAssetsLoaded'
         - $ref: '#/components/schemas/CharacterSpritesLoaded'
@@ -428,6 +431,98 @@ components:
             - type: 'null'
         wasReset:
           type: boolean
+        facilityLayout:
+          type: boolean
+          description: |
+            When true, the layout is owned by the orchestrator facility expansion loop
+            and must be applied even if the layout editor has unsaved changes.
+
+    FacilityProgress:
+      description: |
+        Gamified worker-facility expansion state. Emitted on connect (if orchestrator
+        is active) and whenever a new worker room is carved, the swarm enters
+        collaborative home building, or the facility enters the operating phase.
+      type: object
+      additionalProperties: false
+      required: [type, builtRooms, totalRooms, phase]
+      properties:
+        type:
+          const: facilityProgress
+        builtRooms:
+          type: integer
+          minimum: 0
+        totalRooms:
+          type: integer
+          minimum: 1
+        phase:
+          type: string
+          enum: [building, homemaking, operating]
+        homeSteps:
+          type: integer
+          minimum: 0
+        totalHomeSteps:
+          type: integer
+          minimum: 0
+        sharedGoals:
+          type: array
+          items:
+            type: string
+        missionBoard:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, title, status]
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+              status:
+                type: string
+                enum: [pending, processing, completed, accepted, failed]
+              assignedWorkerId:
+                type: integer
+
+    FacilityBuild:
+      description: |
+        Collaborative home-build step — selected workers path to the commons site
+        and receive a build task while the layout gains new furniture.
+      type: object
+      additionalProperties: false
+      required: [type, step, label, col, row, agentIds]
+      properties:
+        type:
+          const: facilityBuild
+        step:
+          type: integer
+          minimum: 1
+        label:
+          type: string
+        col:
+          type: integer
+        row:
+          type: integer
+        agentIds:
+          type: array
+          items:
+            type: integer
+
+    FacilityChat:
+      description: Inter-agent chat bubble in the browser office floor.
+      type: object
+      additionalProperties: false
+      required: [type, fromId, text]
+      properties:
+        type:
+          const: facilityChat
+        fromId:
+          type: integer
+        toId:
+          type: integer
+          nullable: true
+        text:
+          type: string
 
     FurnitureAssetsLoaded:
       description: Furniture catalog and sprite data, sent once after webviewReady.
