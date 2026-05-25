@@ -1,9 +1,15 @@
+import * as crypto from 'crypto';
+
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
 import { readConfig, writeConfig } from './configPersistence.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
 import { claudeProvider } from './providers/index.js';
+import type { ProviderRegistry } from './providers/registry.js';
+import type { SandboxPolicy } from './sandbox/policy.js';
+import { DEFAULT_CONTAINER_POLICY, SandboxTier } from './sandbox/policy.js';
+import type { SpawnedAgentManager } from './spawnedAgentManager.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -25,6 +31,10 @@ export interface ClientMessageContext {
   cache: AssetCache | null;
   /** Install/uninstall hooks side effect. Needs server url+token known only to cli.ts. */
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
+  /** Manager for agents the daemon spawns + owns (sandboxed stream providers). */
+  spawnManager?: SpawnedAgentManager;
+  /** Provider registry — exposes the spawnable provider list to the webview. */
+  registry?: ProviderRegistry;
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -122,8 +132,52 @@ export function handleClientMessage(
       break;
     }
 
+    // ── Spawned agents (daemon owns + sandboxes the CLI process) ──
+    case 'spawnAgent': {
+      if (!ctx.spawnManager) break;
+      const providerId = typeof msg.providerId === 'string' ? msg.providerId : 'codex';
+      const cwd = typeof msg.cwd === 'string' && msg.cwd ? msg.cwd : process.cwd();
+      // Sandbox tier chosen server-side (never trust a client-sent policy object).
+      const sandbox: SandboxPolicy | null =
+        msg.sandboxTier === SandboxTier.CONTAINER ? { ...DEFAULT_CONTAINER_POLICY } : null;
+      const sessionId =
+        typeof msg.sessionId === 'string' && msg.sessionId ? msg.sessionId : crypto.randomUUID();
+      try {
+        ctx.spawnManager.spawn({
+          providerId,
+          sessionId,
+          cwd,
+          sandbox,
+          bypassPermissions: msg.bypassPermissions === true,
+        });
+      } catch (err) {
+        send({ type: 'spawnError', message: err instanceof Error ? err.message : String(err) });
+      }
+      break;
+    }
+
+    case 'agentInput':
+      if (typeof msg.id === 'number' && typeof msg.text === 'string') {
+        ctx.spawnManager?.sendInput(msg.id, msg.text);
+      }
+      break;
+
+    case 'agentInterrupt':
+      if (typeof msg.id === 'number') ctx.spawnManager?.interrupt(msg.id);
+      break;
+
+    case 'stopSpawnedAgent':
+      if (typeof msg.id === 'number') ctx.spawnManager?.stop(msg.id);
+      break;
+
+    case 'focusAgent': {
+      const id = typeof msg.id === 'number' ? msg.id : null;
+      send({ type: 'agentSelected', id });
+      break;
+    }
+
     default:
-      // focusAgent, exportLayout, importLayout
+      // exportLayout, importLayout
       // require IDE-specific handling (not yet implemented for standalone)
       break;
   }
@@ -139,6 +193,11 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     readingTools: [...claudeProvider.readingTools],
     subagentToolNames: [...claudeProvider.subagentToolNames],
   });
+
+  // 1b. Multi-provider list (registry) — drives the spawn UI + per-provider caps.
+  if (ctx.registry) {
+    send({ type: 'providerList', providers: ctx.registry.capabilities() });
+  }
 
   // 2. Assets (from server cache, loaded at startup via pngjs)
   if (cache) {
@@ -194,6 +253,8 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const agentIds: number[] = [];
   const folderNames: Record<number, string> = {};
   const externalAgents: Record<number, boolean> = {};
+  const agentProviders: Record<number, string> = {};
+  const sandboxTiers: Record<number, string> = {};
   for (const [id, agent] of store) {
     agentIds.push(id);
     if (agent.folderName) {
@@ -202,7 +263,25 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     if (agent.isExternal) {
       externalAgents[id] = true;
     }
+    if (agent.providerId) {
+      agentProviders[id] = agent.providerId;
+    }
   }
+
+  // Include server-side spawned stream agents
+  if (ctx.spawnManager) {
+    for (const id of ctx.spawnManager.list()) {
+      if (!agentIds.includes(id)) {
+        agentIds.push(id);
+        const details = ctx.spawnManager.getDetails(id);
+        if (details) {
+          agentProviders[id] = details.providerId;
+          sandboxTiers[id] = details.sandboxTier;
+        }
+      }
+    }
+  }
+
   const seats = adapter?.loadSeats() ?? {};
   send({
     type: 'existingAgents',
@@ -210,5 +289,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agentMeta: seats,
     folderNames,
     externalAgents,
+    agentProviders,
+    sandboxTiers,
   });
 }

@@ -1,4 +1,3 @@
-import type { ClientMessage, ServerMessage } from '../../../core/src/messages.js';
 import type { MessageTransport } from './types.js';
 
 /**
@@ -8,12 +7,12 @@ import type { MessageTransport } from './types.js';
  */
 export class WebSocketTransport implements MessageTransport {
   private ws: WebSocket | null = null;
-  private handlers: Array<(msg: ServerMessage) => void> = [];
+  private handlers: Array<(msg: object) => void> = [];
   private url: string;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  private pendingMessages: ClientMessage[] = [];
+  private pendingMessages: object[] = [];
 
   constructor(url: string) {
     this.url = url;
@@ -36,7 +35,7 @@ export class WebSocketTransport implements MessageTransport {
 
     this.ws.onmessage = (e: MessageEvent) => {
       try {
-        const msg = JSON.parse(e.data as string) as ServerMessage;
+        const msg = JSON.parse(e.data as string) as object;
         for (const handler of this.handlers) handler(msg);
       } catch {
         // Malformed JSON, ignore
@@ -54,7 +53,7 @@ export class WebSocketTransport implements MessageTransport {
     };
   }
 
-  send(message: ClientMessage): void {
+  send(message: object): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     } else {
@@ -63,7 +62,7 @@ export class WebSocketTransport implements MessageTransport {
     }
   }
 
-  onMessage(handler: (message: ServerMessage) => void): () => void {
+  onMessage(handler: (message: object) => void): () => void {
     this.handlers.push(handler);
     return () => {
       this.handlers = this.handlers.filter((h) => h !== handler);

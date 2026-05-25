@@ -27,6 +27,8 @@ import { EditTool, TILE_SIZE } from '../types.js';
 interface OfficeCanvasProps {
   officeState: OfficeState;
   onClick: (agentId: number) => void;
+  /** Notifies React when the imperative agent selection changes (canvas clicks). */
+  onAgentSelected: (agentId: number | null) => void;
   isEditMode: boolean;
   editorState: EditorState;
   onEditorTileAction: (col: number, row: number) => void;
@@ -44,6 +46,7 @@ interface OfficeCanvasProps {
 export function OfficeCanvas({
   officeState,
   onClick,
+  onAgentSelected,
   isEditMode,
   editorState,
   onEditorTileAction,
@@ -680,9 +683,11 @@ export function OfficeCanvas({
         if (officeState.selectedAgentId === hitId) {
           officeState.selectedAgentId = null;
           officeState.cameraFollowId = null;
+          onAgentSelected(null);
         } else {
           officeState.selectedAgentId = hitId;
           officeState.cameraFollowId = hitId;
+          onAgentSelected(hitId);
         }
         onClick(hitId); // still focus terminal
         return;
@@ -704,12 +709,14 @@ export function OfficeCanvas({
                   officeState.sendToSeat(officeState.selectedAgentId);
                   officeState.selectedAgentId = null;
                   officeState.cameraFollowId = null;
+                  onAgentSelected(null);
                   return;
                 } else if (!seat.assigned) {
                   // Clicked available seat — reassign
                   officeState.reassignSeat(officeState.selectedAgentId, seatId);
                   officeState.selectedAgentId = null;
                   officeState.cameraFollowId = null;
+                  onAgentSelected(null);
                   // Persist seat assignments (exclude sub-agents)
                   const seats: Record<
                     number,
@@ -733,9 +740,10 @@ export function OfficeCanvas({
         // Clicked empty space — deselect
         officeState.selectedAgentId = null;
         officeState.cameraFollowId = null;
+        onAgentSelected(null);
       }
     },
-    [officeState, onClick, screenToWorld, screenToTile, isEditMode],
+    [officeState, onClick, onAgentSelected, screenToWorld, screenToTile, isEditMode],
   );
 
   const handleMouseLeave = useCallback(() => {

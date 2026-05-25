@@ -10,12 +10,12 @@ import type { AgentStateStore } from './agentStateStore.js';
 import type { AssetCache, SetHooksEnabledSideEffect } from './clientMessageHandler.js';
 import { handleClientMessage } from './clientMessageHandler.js';
 import { HOOK_API_PREFIX, MAX_HOOK_BODY_SIZE } from './constants.js';
+import type { ProviderRegistry } from './providers/registry.js';
+import type { SpawnedAgentManager } from './spawnedAgentManager.js';
 import type { AgentState } from './types.js';
 
 /** Options for creating the HTTP + WebSocket server. */
 export interface HttpServerOptions {
-  /** true = VS Code embedded mode (ephemeral port, no static, quiet logging) */
-  embedded: boolean;
   /** Host to bind to. Default: '127.0.0.1' */
   host?: string;
   /** Port to listen on. Default: 0 (auto-assign) */
@@ -24,7 +24,7 @@ export interface HttpServerOptions {
   token: string;
   /** AgentStateStore for WebSocket broadcast piping */
   store: AgentStateStore;
-  /** Shared agent lifecycle core (for toggle side effects + standalone restore). Optional in embedded mode. */
+  /** Shared agent lifecycle core (for toggle side effects + restore). */
   runtime?: AgentRuntime;
   /** Path to SPA dist directory for static serving (standalone only) */
   staticDir?: string;
@@ -34,6 +34,10 @@ export interface HttpServerOptions {
   onHookEvent?: (providerId: string, event: Record<string, unknown>) => void;
   /** Invoked when setHooksEnabled is toggled via WebSocket. Standalone installs/uninstalls hooks here. */
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
+  /** Manager for daemon-spawned + sandboxed agents (stream providers). */
+  spawnManager?: SpawnedAgentManager;
+  /** Provider registry (exposes the spawnable provider list to the webview). */
+  registry?: ProviderRegistry;
 }
 
 /** Result of createHttpServer(). */
@@ -52,15 +56,14 @@ const startTime = Date.now();
  */
 export async function createHttpServer(options: HttpServerOptions): Promise<HttpServerHandle> {
   const app = Fastify({
-    logger: !options.embedded,
+    logger: true,
     bodyLimit: MAX_HOOK_BODY_SIZE,
   });
 
   await app.register(fastifyCors, { origin: true });
   await app.register(fastifyWebsocket);
 
-  // Static SPA serving (standalone mode only)
-  if (!options.embedded && options.staticDir) {
+  if (options.staticDir) {
     await app.register(fastifyStatic, {
       root: options.staticDir,
       prefix: '/',
@@ -133,21 +136,7 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
 
 function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions): void {
   app.get('/ws', { websocket: true }, (socket, request) => {
-    // In standalone mode (not embedded), skip auth for WebSocket connections.
-    // The server binds to 127.0.0.1, so only local clients can connect.
-    // In embedded mode (VS Code), require Bearer token for security.
-    if (options.embedded) {
-      const auth = request.headers.authorization ?? '';
-      const expected = `Bearer ${options.token}`;
-      const authBuf = Buffer.from(auth);
-      const expectedBuf = Buffer.from(expected);
-      if (authBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(authBuf, expectedBuf)) {
-        socket.close(4001, 'unauthorized');
-        return;
-      }
-    }
-
-    const { store } = options;
+    void request;
 
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {
@@ -188,6 +177,8 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
           runtime: options.runtime,
           cache: options.assetCache ?? null,
           onSetHooksEnabled: options.onSetHooksEnabled,
+          spawnManager: options.spawnManager,
+          registry: options.registry,
         });
       } catch {
         // Malformed JSON, ignore

@@ -12,33 +12,16 @@
   ],
   "workspaces": {
     ".": {
-      "entry": [
-        "src/extension.ts",
-        "e2e/**/*.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "core/src/**/*.ts",
-        "e2e/**/*.ts"
-      ]
+      "entry": ["server/src/cli.ts"],
+      "project": ["server/src/**/*.ts", "core/src/**/*.ts"]
     },
     "server": {
-      "entry": [
-        "src/server.ts",
-        "__tests__/**/*.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "__tests__/**/*.ts"
-      ]
+      "entry": ["src/server.ts", "__tests__/**/*.ts"],
+      "project": ["src/**/*.ts", "__tests__/**/*.ts"]
     },
     "webview-ui": {
-      "entry": [
-        "test/**/*.ts"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx}"
-      ]
+      "entry": ["test/**/*.ts"],
+      "project": ["src/**/*.{ts,tsx}"]
     }
   }
 }

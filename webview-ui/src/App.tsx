@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toMajorMinor } from './changelogData.js';
+import { AgentPanel } from './components/AgentPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { DebugView } from './components/DebugView.js';
 import { EditActionBar } from './components/EditActionBar.js';
+import { FacilityBanner } from './components/FacilityBanner.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
 import { SettingsModal } from './components/SettingsModal.js';
+import { SpawnErrorToast } from './components/SpawnErrorToast.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
@@ -74,6 +77,13 @@ function App() {
     hooksEnabled,
     setHooksEnabled,
     hooksInfoShown,
+    providers,
+    activityByAgent,
+    spawnError,
+    clearSpawnError,
+    agentProviders,
+    sandboxTiers,
+    facilityProgress,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   // Show migration notice once layout reset is detected
@@ -143,10 +153,41 @@ function App() {
     transport.send({ type: 'focusAgent', id: focusId });
   }, []);
 
+  // Agent panel: opens for the selected agent. Driven by both the message-level
+  // selection (spawn / agentCreated) and canvas clicks (onAgentSelected).
+  const [panelAgentId, setPanelAgentId] = useState<number | null>(null);
+  useEffect(() => {
+    setPanelAgentId(selectedAgent);
+  }, [selectedAgent]);
+
+  const handleAgentSelected = useCallback((id: number | null) => {
+    // Sub-agents focus their parent terminal but should not open a panel.
+    if (id !== null && getOfficeState().subagentMeta.has(id)) return;
+    setPanelAgentId(id);
+  }, []);
+
+  const handleClosePanel = useCallback(() => {
+    setPanelAgentId(null);
+    const os = getOfficeState();
+    os.selectedAgentId = null;
+    os.cameraFollowId = null;
+  }, []);
+
   const officeState = getOfficeState();
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard;
+
+  // Resolve the panel's provider display name (string | null).
+  const panelProviderName =
+    panelAgentId !== null
+      ? (() => {
+          const providerId = agentProviders[panelAgentId];
+          if (!providerId) return null;
+          const p = providers.find((pr) => pr.id === providerId);
+          return p ? p.displayName : providerId;
+        })()
+      : null;
 
   // Show "Press R to rotate" hint when a rotatable item is selected or being placed
   const showRotateHint =
@@ -176,6 +217,7 @@ function App() {
       <OfficeCanvas
         officeState={officeState}
         onClick={handleClick}
+        onAgentSelected={handleAgentSelected}
         isEditMode={editor.isEditMode}
         editorState={editorState}
         onEditorTileAction={editor.handleEditorTileAction}
@@ -192,6 +234,7 @@ function App() {
 
       {!isDebugMode ? (
         <>
+          {facilityProgress && <FacilityBanner progress={facilityProgress} />}
           <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} />
 
           {/* Vignette overlay */}
@@ -252,6 +295,20 @@ function App() {
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
           />
+
+          {panelAgentId !== null && (
+            <AgentPanel
+              agentId={panelAgentId}
+              providerName={panelProviderName}
+              sandboxTier={sandboxTiers[panelAgentId]}
+              status={agentStatuses[panelAgentId] ?? 'idle'}
+              tools={agentTools[panelAgentId] ?? []}
+              activity={activityByAgent.get(panelAgentId) ?? []}
+              onClose={handleClosePanel}
+            />
+          )}
+
+          {spawnError && <SpawnErrorToast message={spawnError} onDismiss={clearSpawnError} />}
         </>
       ) : (
         <DebugView
@@ -329,6 +386,7 @@ function App() {
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
         workspaceFolders={workspaceFolders}
+        providers={providers}
       />
 
       <VersionIndicator

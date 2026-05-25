@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { FacilityProgress } from '../components/FacilityBanner.js';
+import { AGENT_ACTIVITY_LOG_CAP, SPAWN_ERROR_DEFAULT } from '../constants.js';
+import type { ActivityItem, ProviderInfo, SandboxTier } from '../interaction/messages.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
@@ -70,6 +73,31 @@ interface ExtensionMessageState {
   hooksEnabled: boolean;
   setHooksEnabled: (v: boolean) => void;
   hooksInfoShown: boolean;
+  providers: ProviderInfo[];
+  activityByAgent: Map<number, ActivityItem[]>;
+  spawnError: string | null;
+  clearSpawnError: () => void;
+  agentProviders: Record<number, string>;
+  sandboxTiers: Record<number, SandboxTier>;
+  facilityProgress: FacilityProgress | null;
+}
+
+/** Append an activity item to an agent's capped log, returning a new map. */
+function appendActivity(
+  prev: Map<number, ActivityItem[]>,
+  id: number,
+  item: ActivityItem,
+): Map<number, ActivityItem[]> {
+  const next = new Map(prev);
+  const list = next.get(id) ?? [];
+  const appended = [...list, item];
+  next.set(
+    id,
+    appended.length > AGENT_ACTIVITY_LOG_CAP
+      ? appended.slice(appended.length - AGENT_ACTIVITY_LOG_CAP)
+      : appended,
+  );
+  return next;
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -107,6 +135,12 @@ export function useExtensionMessages(
   const [alwaysShowLabels, setAlwaysShowLabels] = useState(false);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInfoShown, setHooksInfoShown] = useState(true);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [activityByAgent, setActivityByAgent] = useState<Map<number, ActivityItem[]>>(new Map());
+  const [spawnError, setSpawnError] = useState<string | null>(null);
+  const [agentProviders, setAgentProviders] = useState<Record<number, string>>({});
+  const [sandboxTiers, setSandboxTiers] = useState<Record<number, SandboxTier>>({});
+  const [facilityProgress, setFacilityProgress] = useState<FacilityProgress | null>(null);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -130,6 +164,25 @@ export function useExtensionMessages(
           readingTools: msg.readingTools,
           subagentToolNames: msg.subagentToolNames,
         });
+        return;
+      }
+
+      if (msg.type === 'providerList') {
+        setProviders((msg.providers as ProviderInfo[]) ?? []);
+        return;
+      }
+
+      if (msg.type === 'agentActivity') {
+        const id = msg.id as number;
+        const kind = msg.kind as 'message' | 'reasoning';
+        const role = msg.role as 'user' | 'assistant' | undefined;
+        const text = msg.text as string;
+        setActivityByAgent((prev) => appendActivity(prev, id, { kind, role, text, ts: Date.now() }));
+        return;
+      }
+
+      if (msg.type === 'spawnError') {
+        setSpawnError((msg.message as string) ?? SPAWN_ERROR_DEFAULT);
         return;
       }
 
@@ -163,6 +216,14 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'agentCreated') {
         const id = msg.id as number;
+        const providerId = msg.providerId as string | undefined;
+        if (providerId) {
+          setAgentProviders((prev) => ({ ...prev, [id]: providerId }));
+        }
+        const sandboxTier = msg.sandboxTier as SandboxTier | undefined;
+        if (sandboxTier) {
+          setSandboxTiers((prev) => ({ ...prev, [id]: sandboxTier }));
+        }
         const folderName = msg.folderName as string | undefined;
         const isTeammate = msg.isTeammate as boolean | undefined;
         const teammateName = msg.teammateName as string | undefined;
@@ -195,6 +256,18 @@ export function useExtensionMessages(
         const id = msg.id as number;
         setAgents((prev) => prev.filter((a) => a !== id));
         setSelectedAgent((prev) => (prev === id ? null : prev));
+        setAgentProviders((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setSandboxTiers((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         setAgentTools((prev) => {
           if (!(id in prev)) return prev;
           const next = { ...prev };
@@ -213,6 +286,12 @@ export function useExtensionMessages(
           delete next[id];
           return next;
         });
+        setActivityByAgent((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        });
         // Remove all sub-agent characters belonging to this agent
         os.removeAllSubagents(id);
         setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
@@ -224,6 +303,10 @@ export function useExtensionMessages(
           { palette?: number; hueShift?: number; seatId?: string }
         >;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
+        const incomingProviders = (msg.agentProviders || {}) as Record<number, string>;
+        setAgentProviders((prev) => ({ ...prev, ...incomingProviders }));
+        const incomingTiers = (msg.sandboxTiers || {}) as Record<number, SandboxTier>;
+        setSandboxTiers((prev) => ({ ...prev, ...incomingTiers }));
         // Buffer agents — they'll be added in layoutLoaded after seats are built
         for (const id of incoming) {
           const m = meta[id];
@@ -262,6 +345,10 @@ export function useExtensionMessages(
           };
         });
         const toolName = (msg.toolName as string | undefined) ?? extractToolName(status);
+        // Mirror the tool start into the activity feed (one line per tool).
+        setActivityByAgent((prev) =>
+          appendActivity(prev, id, { kind: 'tool', text: status, ts: Date.now() }),
+        );
         os.setAgentTool(id, toolName);
         os.setAgentActive(id, true);
         // Don't clear the permission bubble if the hook already confirmed permission is needed
@@ -510,6 +597,12 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentTokenUsage') {
         const id = msg.id as number;
         os.setAgentTokens(id, msg.inputTokens as number, msg.outputTokens as number);
+      } else if (msg.type === 'facilityProgress') {
+        setFacilityProgress({
+          builtRooms: msg.builtRooms as number,
+          totalRooms: msg.totalRooms as number,
+          phase: msg.phase as 'building' | 'operating',
+        });
       }
     };
     const unsubscribe = transport.onMessage(handler);
@@ -538,5 +631,12 @@ export function useExtensionMessages(
     hooksEnabled,
     setHooksEnabled,
     hooksInfoShown,
+    providers,
+    activityByAgent,
+    spawnError,
+    clearSpawnError: () => setSpawnError(null),
+    agentProviders,
+    sandboxTiers,
+    facilityProgress,
   };
 }

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { WorkspaceFolder } from '../hooks/useExtensionMessages.js';
+import type { ProviderInfo, SandboxTier } from '../interaction/messages.js';
+import { sendClient } from '../interaction/messages.js';
 import { isBrowserRuntime } from '../runtime.js';
 import { transport } from '../transport/index.js';
+import { SpawnMenu } from './SpawnMenu.js';
 import { Button } from './ui/Button.js';
 import { Dropdown, DropdownItem } from './ui/Dropdown.js';
 
@@ -13,6 +16,7 @@ interface BottomToolbarProps {
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
   workspaceFolders: WorkspaceFolder[];
+  providers: ProviderInfo[];
 }
 
 export function BottomToolbar({
@@ -22,10 +26,13 @@ export function BottomToolbar({
   isSettingsOpen,
   onToggleSettings,
   workspaceFolders,
+  providers,
 }: BottomToolbarProps) {
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isBypassMenuOpen, setIsBypassMenuOpen] = useState(false);
+  const [isSpawnMenuOpen, setIsSpawnMenuOpen] = useState(false);
   const folderPickerRef = useRef<HTMLDivElement>(null);
+  const spawnMenuRef = useRef<HTMLDivElement>(null);
   const pendingBypassRef = useRef(false);
   // Close folder picker / bypass menu on outside click
   useEffect(() => {
@@ -39,6 +46,23 @@ export function BottomToolbar({
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [isFolderPickerOpen, isBypassMenuOpen]);
+
+  // Close spawn menu on outside click
+  useEffect(() => {
+    if (!isSpawnMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (spawnMenuRef.current && !spawnMenuRef.current.contains(e.target as Node)) {
+        setIsSpawnMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isSpawnMenuOpen]);
+
+  const handleSpawn = (providerId: string, sandboxTier: SandboxTier) => {
+    setIsSpawnMenuOpen(false);
+    sendClient({ type: 'spawnAgent', providerId, sandboxTier });
+  };
 
   const hasMultipleFolders = workspaceFolders.length > 1;
 
@@ -134,6 +158,16 @@ export function BottomToolbar({
       >
         Settings
       </Button>
+      {providers.length > 0 && (
+        <div ref={spawnMenuRef}>
+          <SpawnMenu
+            isOpen={isSpawnMenuOpen}
+            providers={providers}
+            onToggle={() => setIsSpawnMenuOpen((v) => !v)}
+            onSpawn={handleSpawn}
+          />
+        </div>
+      )}
     </div>
   );
 }

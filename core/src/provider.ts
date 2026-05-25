@@ -1,15 +1,25 @@
 /**
  * Provider abstraction for AI agent tools.
  *
- * Only HookProvider ships today (Claude Code). Transcript-polling and push-based
- * provider types will be added when a real second provider (Codex, Goose,
- * Discord, etc.) actually lands, derived from that provider's needs rather than
- * speculation.
+ * Three provider kinds share one normalized `AgentEvent` contract and a common
+ * `ProviderBase`:
+ *   - HookProvider  : CLIs with a hooks API that PUSH events to our server
+ *                     (Claude Code, Codex). Optionally also expose file fallback.
+ *   - FileProvider  : CLIs we observe by POLLING their transcript files
+ *                     (Antigravity; Cursor/Codex fallback). parseTranscriptLine
+ *                     is the normalization boundary.
+ *   - StreamProvider: CLIs whose process WE own and whose structured stdout we
+ *                     parse (codex exec --json, cursor --output-format stream-json).
+ *                     parseStreamLine is the boundary; buildInputMessage serializes
+ *                     user input into the CLI's stdin wire format.
+ *
+ * Downstream code (hookEventHandler, fileWatcher, transcriptParser) dispatches on
+ * the normalized `AgentEvent.kind` and never reads raw provider-specific fields.
  */
 
 import type { TeamProvider } from './teamProvider.js';
 
-// ── Normalized Events (all provider types produce these) ──────
+// ── Normalized Events (every provider kind produces these) ────
 
 export type AgentEvent =
   | {
@@ -43,6 +53,13 @@ export type AgentEvent =
     }
   | { kind: 'progress'; toolId: string; data: unknown }
   | { kind: 'permissionRequest' }
+  // ── conversation parts (borrowed from OpenCode's Part model) ──
+  // Emitted by Stream/File providers so the UI can show the full conversation,
+  // not just tool status. Handlers may forward these to the activity feed; the
+  // office FSM ignores them. Optional `partId`/`delta` support token streaming.
+  | { kind: 'message'; role: 'user' | 'assistant'; text: string; partId?: string }
+  | { kind: 'reasoning'; text: string; partId?: string }
+  | { kind: 'partDelta'; partId: string; field: 'text' | 'reasoning'; delta: string }
   | {
       kind: 'sessionStart';
       source?: string;
@@ -55,20 +72,62 @@ export type AgentEvent =
     }
   | { kind: 'sessionEnd'; reason?: string };
 
-// ── Hook-based Provider (CLIs with hooks APIs) ────────────────
+/** CLI launch command for the +Agent button / standalone spawn. */
+export interface LaunchCommand {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
 
-export interface HookProvider {
-  readonly kind: 'hook';
+// ── Shared base for every provider kind ───────────────────────
+
+export interface ProviderBase {
   readonly id: string;
   readonly displayName: string;
   /** Protocol version. Server refuses to dispatch events from a provider whose
    *  version it doesn't understand. Bump on every breaking change to AgentEvent
-   *  / TeamProvider / HookProvider. Start at 1. */
+   *  / TeamProvider / the provider interfaces. Start at 1. */
   readonly protocolVersion: number;
+
+  /** Format tool status for display (e.g., "Read" -> "Reading foo.ts"). */
+  formatToolStatus(toolName: string, input?: unknown): string;
+  /** Tools that don't trigger permission timers. */
+  readonly permissionExemptTools: ReadonlySet<string>;
+  /** Tools that spawn sub-agent characters. */
+  readonly subagentToolNames: ReadonlySet<string>;
+  /** Tools that should show the "reading" character animation instead of "typing". */
+  readonly readingTools: ReadonlySet<string>;
+  /** Terminal name prefix used when launching this CLI (heuristic adoption). */
+  readonly terminalNamePrefix?: string;
+
+  // ── Optional file fallback (shared by hook & file providers) ──
+  /** Session directories to scan for this workspace. Undefined = no file fallback. */
+  getSessionDirs?(workspacePath: string): string[];
+  /** Root dirs containing every session this provider may have started (across all
+   *  workspaces). Used by global session discovery / "Watch All Sessions". */
+  getAllSessionRoots?(): string[];
+  /** Glob pattern for session files (e.g., '*.jsonl'). */
+  readonly sessionFilePattern?: string;
+  /** Parse one line of a transcript file into an AgentEvent. */
+  parseTranscriptLine?(line: string): AgentEvent | null;
+  /** Build the CLI launch command. */
+  buildLaunchCommand?(
+    sessionId: string,
+    cwd: string,
+    opts?: { bypassPermissions?: boolean },
+  ): LaunchCommand;
+
+  // ── Optional team/subagent extension (Agent Teams on Claude) ──
+  readonly team?: TeamProvider;
+}
+
+// ── Hook-based Provider (CLIs with hooks APIs) ────────────────
+
+export interface HookProvider extends ProviderBase {
+  readonly kind: 'hook';
 
   /** Normalize a raw hook event payload into an AgentEvent.
    *  Each CLI sends different JSON (Claude: snake_case, Copilot: camelCase, etc.)
-   *  The provider translates to the common AgentEvent format.
    *  Return null for events we should ignore. */
   normalizeHookEvent(raw: Record<string, unknown>): {
     sessionId: string;
@@ -81,51 +140,37 @@ export interface HookProvider {
   uninstallHooks(): Promise<void>;
   /** Check if hooks are currently installed. */
   areHooksInstalled(): Promise<boolean>;
+}
 
-  /** Format tool status for display (e.g., "Read" -> "Reading foo.ts") */
-  formatToolStatus(toolName: string, input?: unknown): string;
-  /** Tools that don't trigger permission timers */
-  readonly permissionExemptTools: ReadonlySet<string>;
-  /** Tools that spawn sub-agent characters */
-  readonly subagentToolNames: ReadonlySet<string>;
-  /** Tools that should show the "reading" character animation instead of "typing".
-   *  The provider classifies tools as read-like or write-like; the webview renders
-   *  the animation. Allows new providers to override without webview edits. */
-  readonly readingTools: ReadonlySet<string>;
-  /** Terminal name prefix used when launching this CLI. Used by the extension to
-   *  match VS Code terminals to agents for heuristic adoption. */
-  readonly terminalNamePrefix?: string;
+// ── File-based Provider (polling-only CLIs) ───────────────────
 
-  // ── Optional file fallback (heuristic mode) ──
+export interface FileProvider extends ProviderBase {
+  readonly kind: 'file';
+  /** Required for file providers: where this CLI stores sessions for a workspace. */
+  getSessionDirs(workspacePath: string): string[];
+  /** Required: glob for session transcript files. */
+  readonly sessionFilePattern: string;
+  /** Required normalization boundary: one transcript line -> AgentEvent. */
+  parseTranscriptLine(line: string): AgentEvent | null;
+}
 
-  /** Session directories to scan. Undefined = no file fallback. */
-  getSessionDirs?(workspacePath: string): string[];
-  /** Root directories containing every session this provider may have started
-   *  (across all workspaces). Used by global session discovery / "Watch All
-   *  Sessions". Each returned dir contains subdirs whose entries are session
-   *  transcript files. Undefined = this provider doesn't support global scan. */
-  getAllSessionRoots?(): string[];
-  /** Glob pattern for session files (e.g., '*.jsonl'). */
-  readonly sessionFilePattern?: string;
-  /** Parse one line of a transcript file into an AgentEvent. */
-  parseTranscriptLine?(line: string): AgentEvent | null;
-  /** Build CLI launch command for +Agent button. */
-  buildLaunchCommand?(
+// ── Stream-based Provider (CLIs whose process we own) ─────────
+
+export interface StreamProvider extends ProviderBase {
+  readonly kind: 'stream';
+  /** Required: how to launch this CLI in a structured-streaming mode. */
+  buildLaunchCommand(
     sessionId: string,
     cwd: string,
     opts?: { bypassPermissions?: boolean },
-  ): {
-    command: string;
-    args: string[];
-    env?: Record<string, string>;
-  };
-
-  // ── Optional team/subagent extension (Agent Teams on Claude; empty for single-agent CLIs) ──
-
-  /** Optional reference to a TeamProvider. When set, the hook handler registers team-aware
-   *  branches (subagent routing, teammate discovery, permission forwarding, etc.). */
-  readonly team?: TeamProvider;
+  ): LaunchCommand;
+  /** Required normalization boundary: one stdout line (NDJSON) -> AgentEvent. */
+  parseStreamLine(line: string): AgentEvent | null;
+  /** Serialize a user prompt into the CLI's stdin wire format (e.g. stream-json).
+   *  Returns the exact string to write to the process's stdin (newline added by
+   *  the runner). */
+  buildInputMessage(text: string): string;
 }
 
-// TODO(provider type taxonomy): FileProvider (polling-only CLIs) and StreamProvider
-// (push-based external services) will be added alongside the first real second provider
+/** Any provider the runtime can host. Discriminated by `kind`. */
+export type AgentProvider = HookProvider | FileProvider | StreamProvider;

@@ -21,8 +21,10 @@ import {
 } from './assetLoader.js';
 import type { AssetCache } from './clientMessageHandler.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
-import { claudeProvider, copyHookScript } from './providers/index.js';
+import { OrchestratorManager } from './orchestratorManager.js';
+import { claudeProvider, copyHookScript, createDefaultRegistry } from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
+import { SpawnedAgentManager } from './spawnedAgentManager.js';
 
 // ── Argument parsing ──────────────────────────────────────────
 
@@ -79,8 +81,22 @@ async function main(): Promise<void> {
 
   // ── Store + adapter (shared settings + standalone-scoped agents/seats) ──
   const store = new AgentStateStore();
-  const adapter = new FileStateAdapter({ namespace: 'standalone' });
+  const adapter = new FileStateAdapter();
   store.setAdapter(adapter);
+
+  // ── Provider registry + spawned-agent manager (daemon owns + sandboxes CLIs) ──
+  const registry = createDefaultRegistry();
+  const spawnManager = new SpawnedAgentManager({
+    registry,
+    emit: (m) => store.broadcast(m),
+    allocateId: () => store.nextAgentId.current++,
+  });
+  console.log(
+    `[Pixel Agents] Providers: ${registry
+      .list()
+      .map((p) => `${p.id}(${p.kind})`)
+      .join(', ')}`,
+  );
 
   // ── Create server ──
   const server = new PixelAgentsServer();
@@ -121,6 +137,8 @@ async function main(): Promise<void> {
       staticDir,
       assetCache,
       onSetHooksEnabled,
+      spawnManager,
+      registry,
     });
     currentConfig = { port: config.port, token: config.token };
 
@@ -150,11 +168,29 @@ async function main(): Promise<void> {
       runtime.startStaleCheck();
     }
 
+    // Optional: boot the orchestrator swarm (token-free) — a central overlord
+    // that spawns + commands a swarm of worker agents. Enabled via env flag.
+    let orchestrator: OrchestratorManager | null = null;
+    if (process.env.PIXEL_AGENTS_ORCHESTRATOR) {
+      orchestrator = new OrchestratorManager({
+        manager: spawnManager,
+        emit: (m) => store.broadcast(m),
+        // Broadcast the procedurally-built facility layout to clients only —
+        // do NOT persist it (would clobber the user's saved office layout).
+        onLayout: (layout) => store.broadcast({ type: 'layoutLoaded', layout }),
+      });
+      const workerCount = Number(process.env.PIXEL_AGENTS_WORKERS ?? '5');
+      void orchestrator.start({ workerCount, cwd });
+      console.log(`[Pixel Agents] Orchestrator facility starting (overlord + ${workerCount} rooms)`);
+    }
+
     console.log(`\n  Pixel Agents server running at http://${args.host}:${config.port}\n`);
 
     // ── Graceful shutdown ──
     function shutdown(): void {
       console.log('\nShutting down...');
+      orchestrator?.dispose();
+      spawnManager.dispose();
       runtime.dispose();
       server.stop();
       process.exit(0);

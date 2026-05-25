@@ -13,7 +13,7 @@ export interface AdapterSettings {
   hooksInfoShown: boolean;
 }
 
-/** All keys in AdapterSettings. Used by adapters to map `pixel-agents.foo` → `foo`. */
+/** All keys in AdapterSettings. Used to map `pixel-agents.foo` → `foo`. */
 export const ADAPTER_SETTING_KEYS = [
   'soundEnabled',
   'lastSeenVersion',
@@ -25,13 +25,16 @@ export const ADAPTER_SETTING_KEYS = [
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
 
-/** Namespaces = adapter identities sharing the same config.json file. */
-export type ConfigNamespace = 'vscode' | 'standalone';
-
 export interface PixelAgentsConfig {
-  vscode: AdapterSettings;
-  standalone: AdapterSettings;
+  settings: AdapterSettings;
   externalAssetDirectories: string[];
+}
+
+/** @deprecated Legacy on-disk shape — merged into `settings` on read. */
+interface LegacyPixelAgentsConfig {
+  vscode?: Partial<AdapterSettings>;
+  standalone?: Partial<AdapterSettings>;
+  externalAssetDirectories?: string[];
 }
 
 const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
@@ -47,7 +50,6 @@ function getConfigFilePath(): string {
   return path.join(os.homedir(), LAYOUT_FILE_DIR, CONFIG_FILE_NAME);
 }
 
-/** Coerce a loose object into a valid AdapterSettings with defaults for missing/wrong-typed fields. */
 function parseAdapterSettings(raw: unknown): AdapterSettings {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Partial<AdapterSettings>;
   return {
@@ -78,21 +80,35 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
   };
 }
 
+function mergeLegacySettings(parsed: LegacyPixelAgentsConfig): AdapterSettings {
+  const standalone = parseAdapterSettings(parsed.standalone);
+  const legacyVs = parseAdapterSettings(parsed.vscode);
+  const defaults = { ...DEFAULT_ADAPTER_SETTINGS };
+  const merged = { ...defaults, ...legacyVs, ...standalone };
+  return merged;
+}
+
 export function readConfig(): PixelAgentsConfig {
   const filePath = getConfigFilePath();
   try {
     if (!fs.existsSync(filePath)) {
       return {
-        vscode: { ...DEFAULT_ADAPTER_SETTINGS },
-        standalone: { ...DEFAULT_ADAPTER_SETTINGS },
+        settings: { ...DEFAULT_ADAPTER_SETTINGS },
         externalAssetDirectories: [],
       };
     }
     const raw = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<PixelAgentsConfig>;
+    const parsed = JSON.parse(raw) as LegacyPixelAgentsConfig & Partial<PixelAgentsConfig>;
+    if (parsed.settings && typeof parsed.settings === 'object') {
+      return {
+        settings: parseAdapterSettings(parsed.settings),
+        externalAssetDirectories: Array.isArray(parsed.externalAssetDirectories)
+          ? parsed.externalAssetDirectories.filter((d): d is string => typeof d === 'string')
+          : [],
+      };
+    }
     return {
-      vscode: parseAdapterSettings(parsed.vscode),
-      standalone: parseAdapterSettings(parsed.standalone),
+      settings: mergeLegacySettings(parsed),
       externalAssetDirectories: Array.isArray(parsed.externalAssetDirectories)
         ? parsed.externalAssetDirectories.filter((d): d is string => typeof d === 'string')
         : [],
@@ -100,8 +116,7 @@ export function readConfig(): PixelAgentsConfig {
   } catch (err) {
     console.error('[Pixel Agents] Failed to read config file:', err);
     return {
-      vscode: { ...DEFAULT_ADAPTER_SETTINGS },
-      standalone: { ...DEFAULT_ADAPTER_SETTINGS },
+      settings: { ...DEFAULT_ADAPTER_SETTINGS },
       externalAssetDirectories: [],
     };
   }

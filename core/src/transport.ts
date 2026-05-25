@@ -1,17 +1,11 @@
-import type { ClientMessage, ServerMessage } from './messages.js';
-
 /**
- * Transport-agnostic message layer between webview and extension/server.
+ * Message transport abstraction for the webview UI.
  *
- * Implementations:
- * - PostMessageTransport: VS Code webview (acquireVsCodeApi)
- * - WebSocketTransport: standalone browser (future)
+ * Standalone mode uses WebSocketTransport to talk to the local server.
  */
+
 export interface MessageTransport {
-  /** Send a message to the extension/server. */
-  send(message: ClientMessage): void;
-  /** Subscribe to messages from the extension/server. Returns unsubscribe function. */
-  onMessage(handler: (message: ServerMessage) => void): () => void;
-  /** Clean up resources (WebSocket close, etc.). */
-  dispose(): void;
+  send(message: object): void;
+  onMessage(handler: (message: object) => void): () => void;
+  dispose?(): void;
 }

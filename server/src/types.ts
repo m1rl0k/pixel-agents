@@ -1,11 +1,11 @@
-import type * as vscode from 'vscode';
+import type { TerminalHandle } from '../../core/src/terminalAdapter.js';
 
 export interface AgentState {
   id: number;
   sessionId: string;
-  /** Terminal reference — undefined for extension panel sessions */
-  terminalRef?: vscode.Terminal;
-  /** Whether this agent was detected from an external source (VS Code extension panel, etc.) */
+  /** Terminal reference — only set when a host terminal adapter is registered */
+  terminalRef?: TerminalHandle;
+  /** Whether this agent was detected from an external JSONL session (outside spawned workers) */
   isExternal: boolean;
   projectDir: string;
   jsonlFile: string;
@@ -63,7 +63,7 @@ export interface AgentState {
 export interface PersistedAgent {
   id: number;
   sessionId?: string;
-  /** Terminal name — empty string for extension panel sessions */
+  /** Terminal name — empty when no host terminal is bound */
   terminalName: string;
   /** Whether this agent was detected from an external source */
   isExternal?: boolean;

@@ -13,3 +13,11 @@
 
 export { claudeProvider } from './hook/claude/claude.js';
 export { copyHookScript } from './hook/claude/claudeHookInstaller.js';
+
+// Multi-provider registry + bundled providers
+export { createDefaultRegistry } from './defaultRegistry.js';
+export { antigravityProvider } from './file/antigravity/antigravity.js';
+export { codexProvider } from './file/codex/codex.js';
+export type { ProviderCapability } from './registry.js';
+export { ProviderRegistry } from './registry.js';
+export { cursorFileProvider,cursorProvider } from './stream/cursor/cursor.js';

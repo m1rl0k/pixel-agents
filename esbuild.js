@@ -5,7 +5,7 @@ const path = require('path');
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
-/** Extension version read from package.json at build time, inlined via esbuild `define`. */
+/** App version read from package.json at build time, inlined via esbuild `define`. */
 const pkgVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'),
 ).version;
@@ -21,12 +21,9 @@ function copyAssets() {
   const dstDir = path.join(__dirname, 'dist', 'assets');
 
   if (fs.existsSync(srcDir)) {
-    // Remove existing dist/assets if present
     if (fs.existsSync(dstDir)) {
       fs.rmSync(dstDir, { recursive: true });
     }
-
-    // Copy recursively
     fs.cpSync(srcDir, dstDir, { recursive: true });
     console.log('✓ Copied assets/ → dist/assets/');
   } else {
@@ -62,12 +59,28 @@ function buildHooks() {
   console.log('✓ Built hooks/ → dist/hooks/');
 }
 
+/** Bundle the standalone CLI entry point. */
+async function buildCli() {
+  await esbuild.build({
+    entryPoints: ['server/src/cli.ts'],
+    bundle: true,
+    format: 'cjs',
+    minify: production,
+    sourcemap: !production,
+    platform: 'node',
+    outfile: 'dist/cli.js',
+    external: ['fastify', '@fastify/websocket', '@fastify/static', '@fastify/cors'],
+    define: versionDefine,
+    logLevel: 'silent',
+  });
+  console.log('✓ Built CLI → dist/cli.js');
+}
+
 /**
  * @type {import('esbuild').Plugin}
  */
 const esbuildProblemMatcherPlugin = {
   name: 'esbuild-problem-matcher',
-
   setup(build) {
     build.onStart(() => {
       console.log('[watch] build started');
@@ -83,52 +96,27 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
-  const ctx = await esbuild.context({
-    entryPoints: ['adapters/vscode/extension.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/extension.js',
-    external: ['vscode'],
-    define: versionDefine,
-    logLevel: 'silent',
-    plugins: [
-      /* add to the end of plugins array */
-      esbuildProblemMatcherPlugin,
-    ],
-  });
   if (watch) {
+    const ctx = await esbuild.context({
+      entryPoints: ['server/src/cli.ts'],
+      bundle: true,
+      format: 'cjs',
+      minify: production,
+      sourcemap: !production,
+      platform: 'node',
+      outfile: 'dist/cli.js',
+      external: ['fastify', '@fastify/websocket', '@fastify/static', '@fastify/cors'],
+      define: versionDefine,
+      logLevel: 'silent',
+      plugins: [esbuildProblemMatcherPlugin],
+    });
     await ctx.watch();
-  } else {
-    await ctx.rebuild();
-    await ctx.dispose();
-    // Copy assets and hooks after build
-    copyAssets();
-    buildHooks();
-    await buildCli();
+    return;
   }
-}
 
-/** Bundle the standalone CLI entry point. */
-async function buildCli() {
-  await esbuild.build({
-    entryPoints: ['server/src/cli.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    platform: 'node',
-    outfile: 'dist/cli.js',
-    external: ['fastify', '@fastify/websocket', '@fastify/static', '@fastify/cors'],
-    define: versionDefine,
-    logLevel: 'silent',
-  });
-  if (!production) {
-    console.log('[build] CLI bundled: dist/cli.mjs');
-  }
+  copyAssets();
+  buildHooks();
+  await buildCli();
 }
 
 main().catch((e) => {

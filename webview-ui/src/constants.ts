@@ -134,6 +134,36 @@ export const CHARACTER_HIT_HALF_WIDTH = 8;
 export const CHARACTER_HIT_HEIGHT = 24;
 export const TOOL_OVERLAY_VERTICAL_OFFSET = 32;
 
+// ── Agent Interaction (panel, activity feed, spawn, toast) ──
+/** Max activity items retained per agent in the activity feed log. */
+export const AGENT_ACTIVITY_LOG_CAP = 200;
+/** Auto-dismiss delay for the spawn-error toast. */
+export const SPAWN_ERROR_TOAST_MS = 4000;
+/** Width of the right-side agent panel drawer (px). */
+export const AGENT_PANEL_WIDTH_PX = 380;
+/** Sandbox tiers offered in the spawn menu. */
+export const SANDBOX_TIER_NONE = 'none';
+export const SANDBOX_TIER_CONTAINER = 'container';
+
+/** Gamified orchestrator ↔ worker vocabulary (spawned agents serve the orchestrator). */
+export const ORCHESTRATOR_LABEL = 'Orchestrator';
+export const WORKER_LABEL = 'Worker';
+export const SPAWN_WORKER_BUTTON = '+ Worker';
+export const SPAWN_WORKER_TITLE = 'Deploy a worker agent under orchestrator control';
+export const SANDBOX_SECTION_LABEL = 'Restraints';
+export const SANDBOX_TIER_NONE_LABEL = 'Unsandboxed';
+export const SANDBOX_TIER_CONTAINER_LABEL = 'Sandboxed';
+export const WORKER_STATUS_ON_TASK = 'On task';
+export const WORKER_STATUS_AWAITING_ORDERS = 'Awaiting orders';
+export const WORKER_STATUS_STANDING_BY = 'Standing by';
+export const WORKER_STATUS_NEEDS_CLEARANCE = 'Needs clearance';
+export const WORKER_INPUT_PLACEHOLDER = 'Issue order…';
+export const WORKER_DISMISS_LABEL = 'Dismiss';
+export const WORKER_HALT_LABEL = 'Halt';
+export const WORKER_SEND_LABEL = 'Send';
+export const WORKER_REPORTS_TO = 'Reports to Orchestrator';
+export const SPAWN_ERROR_DEFAULT = 'Failed to deploy worker';
+
 // ── Agent Teams ─────────────────────────────────────────────
 export const MAX_CONTEXT_TOKENS = 200_000;
 export const TOKEN_WARN_THRESHOLD = 0.6;
@@ -148,3 +178,10 @@ export const FUEL_COLOR_CRITICAL = '#ff2222';
 export const FUEL_GAUGE_BG = '#222';
 export const TEAM_LEAD_COLOR = '#ffd700';
 export const TEAM_ROLE_COLOR = '#66aaff';
+
+// ── SpacetimeDB Facility ──────────────────────────────────────
+export const FACILITY_BANNER_TITLE = 'SPACETIMEDB WORKER FACILITY';
+export const FACILITY_BANNER_TAGLINE = "Clockwork Labs' open-source relational database (RDBMS)";
+export const FACILITY_PHASE_BUILDING = 'Carving worker rooms & provisioning sandboxes...';
+export const FACILITY_PHASE_OPERATING = 'All sandbox environments live. Worker dispatch loop engaged.';
+

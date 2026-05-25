@@ -1,18 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// fileWatcher.ts does `import * as vscode from 'vscode'` at module load; the 'vscode'
-// package only resolves inside the extension host. Stub the two APIs fileWatcher actually
-// touches at runtime (vscode.window.activeTerminal / terminals) so the module loads
-// under vitest. Must be declared BEFORE the fileWatcher import.
-vi.mock('vscode', () => ({
-  window: {
-    activeTerminal: undefined,
-    terminals: [],
-  },
-}));
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { DISMISSED_COOLDOWN_MS, EXTERNAL_ACTIVE_THRESHOLD_MS } from '../src/constants.js';
