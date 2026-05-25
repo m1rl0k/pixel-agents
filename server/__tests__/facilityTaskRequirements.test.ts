@@ -6,7 +6,6 @@ import {
   KIMI_WORKER_PROVIDER_ID,
   ZAI_WORKER_PROVIDER_ID,
 } from '../src/facilityConstants.js';
-import { CURSOR_WORKER_PROVIDER_ID } from '../src/facilityProviders.js';
 import {
   providerSupportsSelfMaintain,
   taskKindRequiresLocalRepo,
@@ -22,7 +21,7 @@ describe('facilityTaskRequirements', () => {
   it('allows owned CLI lanes for self-maintain', () => {
     expect(providerSupportsSelfMaintain(CLAUDE_STREAM_PROVIDER_ID)).toBe(true);
     expect(providerSupportsSelfMaintain(KIMI_CLI_PROVIDER_ID)).toBe(true);
-    expect(providerSupportsSelfMaintain(CURSOR_WORKER_PROVIDER_ID)).toBe(true);
+    expect(providerSupportsSelfMaintain('cursor')).toBe(true);
   });
 
   it('denies API-only lanes for self-maintain', () => {

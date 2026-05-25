@@ -495,15 +495,33 @@ describe('OrchestratorManager', () => {
 
     const { emit } = await runToOperating(1);
     const emitSpy = emit as ReturnType<typeof vi.fn>;
+    const internal = orch as unknown as {
+      selfMaintainQueue: Array<{
+        id: string;
+        title: string;
+        prompt: string;
+        source: string;
+        kind: string;
+      }>;
+      selfMaintainDispatchCount: number;
+    };
+    internal.selfMaintainQueue = [
+      {
+        id: 'maintain-1',
+        title: '[MAINTAIN] add tests',
+        prompt: 'Add a small test. Report SELF_MAINTAIN_OK when build passes.',
+        source: 'unit-test',
+        kind: 'test',
+      },
+    ];
+    internal.selfMaintainDispatchCount = 2;
 
     manager.sendInput.mockClear();
     emitSpy.mockClear();
 
-    // Third dispatch tick is a maintenance slot (SELF_MAINTAIN_EVERY_N = 3).
-    for (let i = 0; i < 3; i++) {
-      vi.setSystemTime(Date.now() + dispatchIntervalMs());
-      (orch as unknown as { dispatch: () => void }).dispatch();
-    }
+    // Next dispatch tick is a maintenance slot (SELF_MAINTAIN_EVERY_N = 3).
+    vi.setSystemTime(Date.now() + dispatchIntervalMs());
+    (orch as unknown as { dispatch: () => void }).dispatch();
 
     const maintainPrompts = manager.sendInput.mock.calls.filter((call) =>
       String(call[1]).includes('[MAINTAIN]'),
