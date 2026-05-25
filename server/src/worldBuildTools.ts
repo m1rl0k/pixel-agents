@@ -28,6 +28,7 @@ function isExpandDirection(value: unknown): value is 'north' | 'south' | 'east' 
 
 function normalizeExpandAmount(value: unknown): number | null {
   const amount = value === undefined ? 1 : value;
+  if (typeof amount !== 'number') return null;
   return Number.isInteger(amount) && amount > 0 ? amount : null;
 }
 
