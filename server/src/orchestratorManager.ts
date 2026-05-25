@@ -42,6 +42,7 @@ import {
   pickWorkerProviderForRoom,
 } from './facilityProviders.js';
 import { FacilityStateStore } from './facilityStateStore.js';
+import { providerSupportsSelfMaintain } from './facilityTaskRequirements.js';
 import { getHomeBuildStep } from './homeBuildPlan.js';
 import { MissionContextStore } from './missionContextStore.js';
 import { FacilityTaskTree, type MissionBoardItem } from './omc/facilityTaskTree.js';
@@ -927,11 +928,17 @@ export class OrchestratorManager {
     const roomNum = workerIndex + 1;
     this.selfMaintainDispatchCount++;
 
-    // Every Nth dispatch, slot a self-maintenance task when enabled.
-    const maintainTask = this.pickSelfMaintainTask();
+    // Every Nth dispatch, slot a self-maintenance task when enabled and the lane can use the repo.
+    const maintainTask = this.peekSelfMaintainTask();
     if (maintainTask) {
-      this.dispatchSelfMaintainTask(workerId, roomNum - 1, maintainTask);
-      return;
+      if (this.workerSupportsSelfMaintain(workerId)) {
+        this.consumeSelfMaintainTask();
+        this.dispatchSelfMaintainTask(workerId, roomNum - 1, maintainTask);
+        return;
+      }
+      this.narrate(
+        `Self-maintain deferred for ${workerRoomMeta(roomNum - 1).label}: provider lacks local repo access`,
+      );
     }
 
     const task = pickSpacetimeTask(this.taskCursor);
@@ -965,11 +972,17 @@ export class OrchestratorManager {
     this.maybeScheduleOperatingWorldBuild(workerId, workerIndex, task);
   }
 
+  private workerSupportsSelfMaintain(workerId: number): boolean {
+    const providerId = this.manager.getDetails(workerId)?.providerId;
+    if (!providerId) return false;
+    return providerSupportsSelfMaintain(providerId);
+  }
+
   /**
-   * Return the next self-maintenance task if this dispatch cycle is a
-   * maintenance slot and the feature is enabled, otherwise return null.
+   * Peek the next self-maintenance task on a maintenance slot without dequeuing.
+   * Dequeue only after a capable worker accepts the task (see dispatchToWorker).
    */
-  private pickSelfMaintainTask(): SelfMaintenanceTask | null {
+  private peekSelfMaintainTask(): SelfMaintenanceTask | null {
     if (!selfMaintainEnabled()) return null;
     if (this.selfMaintainDispatchCount % OrchestratorManager.SELF_MAINTAIN_EVERY_N !== 0) {
       return null;
@@ -977,7 +990,11 @@ export class OrchestratorManager {
     if (this.selfMaintainQueue.length === 0) {
       this.selfMaintainQueue = generateSelfMaintenanceTasks(this.cwd);
     }
-    return this.selfMaintainQueue.shift() ?? null;
+    return this.selfMaintainQueue[0] ?? null;
+  }
+
+  private consumeSelfMaintainTask(): void {
+    if (this.selfMaintainQueue.length > 0) this.selfMaintainQueue.shift();
   }
 
   /** Dispatch a self-maintenance task to a worker, registering it on the mission board. */
