@@ -177,14 +177,84 @@ const STEPS: HomeBuildStepDef[] = [
     orchestratorChat: 'Datacenter crew: server racks and monitoring screens go in the East wing.',
     apply: (f) => {
       f.push(
-        { uid: 'datacenter-rack-1', type: 'DOUBLE_BOOKSHELF', col: RIGHT_ORIGIN_COL + 2, row: RIGHT_ORIGIN_ROW + 3 },
-        { uid: 'datacenter-rack-2', type: 'DOUBLE_BOOKSHELF', col: RIGHT_ORIGIN_COL + 2, row: RIGHT_ORIGIN_ROW + 7 },
-        { uid: 'datacenter-rack-3', type: 'DOUBLE_BOOKSHELF', col: RIGHT_ORIGIN_COL + 5, row: RIGHT_ORIGIN_ROW + 3 },
-        { uid: 'datacenter-rack-4', type: 'DOUBLE_BOOKSHELF', col: RIGHT_ORIGIN_COL + 5, row: RIGHT_ORIGIN_ROW + 7 },
-        { uid: 'datacenter-desk', type: 'DESK_FRONT', col: RIGHT_ORIGIN_COL + 3, row: RIGHT_ORIGIN_ROW + 12 },
-        { uid: 'datacenter-pc', type: 'PC_FRONT_OFF', col: RIGHT_ORIGIN_COL + 3, row: RIGHT_ORIGIN_ROW + 12 },
-        { uid: 'datacenter-chair', type: 'CUSHIONED_CHAIR_FRONT', col: RIGHT_ORIGIN_COL + 3, row: RIGHT_ORIGIN_ROW + 14 },
-        { uid: 'datacenter-screen', type: 'WHITEBOARD', col: RIGHT_ORIGIN_COL + 3, row: RIGHT_ORIGIN_ROW + 1 },
+        {
+          uid: 'datacenter-rack-1',
+          type: 'DOUBLE_BOOKSHELF',
+          col: RIGHT_ORIGIN_COL + 1,
+          row: RIGHT_ORIGIN_ROW + 3,
+        },
+        {
+          uid: 'datacenter-rack-2',
+          type: 'DOUBLE_BOOKSHELF',
+          col: RIGHT_ORIGIN_COL + 1,
+          row: RIGHT_ORIGIN_ROW + 6,
+        },
+        {
+          uid: 'datacenter-rack-3',
+          type: 'DOUBLE_BOOKSHELF',
+          col: RIGHT_ORIGIN_COL + 1,
+          row: RIGHT_ORIGIN_ROW + 9,
+        },
+        {
+          uid: 'datacenter-rack-4',
+          type: 'DOUBLE_BOOKSHELF',
+          col: RIGHT_ORIGIN_COL + 4,
+          row: RIGHT_ORIGIN_ROW + 3,
+        },
+        {
+          uid: 'datacenter-rack-5',
+          type: 'DOUBLE_BOOKSHELF',
+          col: RIGHT_ORIGIN_COL + 4,
+          row: RIGHT_ORIGIN_ROW + 6,
+        },
+        {
+          uid: 'datacenter-rack-6',
+          type: 'DOUBLE_BOOKSHELF',
+          col: RIGHT_ORIGIN_COL + 4,
+          row: RIGHT_ORIGIN_ROW + 9,
+        },
+        {
+          uid: 'datacenter-desk-1',
+          type: 'DESK_FRONT',
+          col: RIGHT_ORIGIN_COL + 1,
+          row: RIGHT_ORIGIN_ROW + 24,
+        },
+        {
+          uid: 'datacenter-pc-1',
+          type: 'PC_FRONT_OFF',
+          col: RIGHT_ORIGIN_COL + 1,
+          row: RIGHT_ORIGIN_ROW + 24,
+        },
+        {
+          uid: 'datacenter-chair-1',
+          type: 'CUSHIONED_CHAIR_BACK',
+          col: RIGHT_ORIGIN_COL + 2,
+          row: RIGHT_ORIGIN_ROW + 26,
+        },
+        {
+          uid: 'datacenter-desk-2',
+          type: 'DESK_FRONT',
+          col: RIGHT_ORIGIN_COL + 4,
+          row: RIGHT_ORIGIN_ROW + 24,
+        },
+        {
+          uid: 'datacenter-pc-2',
+          type: 'PC_FRONT_OFF',
+          col: RIGHT_ORIGIN_COL + 4,
+          row: RIGHT_ORIGIN_ROW + 24,
+        },
+        {
+          uid: 'datacenter-chair-2',
+          type: 'CUSHIONED_CHAIR_BACK',
+          col: RIGHT_ORIGIN_COL + 5,
+          row: RIGHT_ORIGIN_ROW + 26,
+        },
+        {
+          uid: 'datacenter-screen',
+          type: 'WHITEBOARD',
+          col: RIGHT_ORIGIN_COL + 3,
+          row: RIGHT_ORIGIN_ROW + 1,
+        },
       );
     },
   },
@@ -192,16 +262,52 @@ const STEPS: HomeBuildStepDef[] = [
     id: 'courtyard',
     label: 'Outer Courtyard park',
     task: 'landscape the outdoor courtyard — add park benches and potted flora around the oasis pond',
-    orchestratorChat: 'Courtyard team: place rustic benches and potted plants in the West garden courtyard.',
+    orchestratorChat:
+      'Courtyard team: place rustic benches and potted plants in the West garden courtyard.',
     apply: (f) => {
       f.push(
-        { uid: 'courtyard-bench-1', type: 'WOODEN_BENCH', col: LEFT_ORIGIN_COL + 2, row: LEFT_ORIGIN_ROW + 4 },
-        { uid: 'courtyard-bench-2', type: 'WOODEN_BENCH', col: LEFT_ORIGIN_COL + 2, row: LEFT_ORIGIN_ROW + 16 },
-        { uid: 'courtyard-plant-1', type: 'LARGE_PLANT', col: LEFT_ORIGIN_COL + 1, row: LEFT_ORIGIN_ROW + 1 },
-        { uid: 'courtyard-plant-2', type: 'LARGE_PLANT', col: LEFT_ORIGIN_COL + 5, row: LEFT_ORIGIN_ROW + 1 },
-        { uid: 'courtyard-pot-1', type: 'POT', col: LEFT_ORIGIN_COL + 1, row: LEFT_ORIGIN_ROW + 10 },
-        { uid: 'courtyard-pot-2', type: 'POT', col: LEFT_ORIGIN_COL + 5, row: LEFT_ORIGIN_ROW + 10 },
-        { uid: 'courtyard-plant-3', type: 'PLANT', col: LEFT_ORIGIN_COL + 2, row: LEFT_ORIGIN_ROW + 11 },
+        {
+          uid: 'courtyard-bench-1',
+          type: 'WOODEN_BENCH',
+          col: LEFT_ORIGIN_COL + 2,
+          row: LEFT_ORIGIN_ROW + 4,
+        },
+        {
+          uid: 'courtyard-bench-2',
+          type: 'WOODEN_BENCH',
+          col: LEFT_ORIGIN_COL + 2,
+          row: LEFT_ORIGIN_ROW + 16,
+        },
+        {
+          uid: 'courtyard-plant-1',
+          type: 'LARGE_PLANT',
+          col: LEFT_ORIGIN_COL + 1,
+          row: LEFT_ORIGIN_ROW + 1,
+        },
+        {
+          uid: 'courtyard-plant-2',
+          type: 'LARGE_PLANT',
+          col: LEFT_ORIGIN_COL + 5,
+          row: LEFT_ORIGIN_ROW + 1,
+        },
+        {
+          uid: 'courtyard-pot-1',
+          type: 'POT',
+          col: LEFT_ORIGIN_COL + 1,
+          row: LEFT_ORIGIN_ROW + 10,
+        },
+        {
+          uid: 'courtyard-pot-2',
+          type: 'POT',
+          col: LEFT_ORIGIN_COL + 5,
+          row: LEFT_ORIGIN_ROW + 10,
+        },
+        {
+          uid: 'courtyard-plant-3',
+          type: 'PLANT',
+          col: LEFT_ORIGIN_COL + 2,
+          row: LEFT_ORIGIN_ROW + 11,
+        },
       );
     },
   },
@@ -209,17 +315,58 @@ const STEPS: HomeBuildStepDef[] = [
     id: 'arcade',
     label: 'Swarm Arcade lounge',
     task: 'set up the swarm arcade — place cabinet gaming terminals and lounge gaming sofas',
-    orchestratorChat: 'Arcade team: dual gaming terminals and relaxing sofas in the bottom recreation lounge.',
+    orchestratorChat:
+      'Arcade team: dual gaming terminals and relaxing sofas in the bottom recreation lounge.',
     apply: (f, _ox, _oy, w) => {
       f.push(
-        { uid: 'rec-game-desk-1', type: 'DESK_FRONT', col: REC_ORIGIN_COL + 4, row: REC_ORIGIN_ROW + 2 },
-        { uid: 'rec-game-pc-1', type: 'PC_FRONT_OFF', col: REC_ORIGIN_COL + 4, row: REC_ORIGIN_ROW + 2 },
-        { uid: 'rec-game-chair-1', type: 'WOODEN_CHAIR_FRONT', col: REC_ORIGIN_COL + 4, row: REC_ORIGIN_ROW + 4 },
-        { uid: 'rec-game-desk-2', type: 'DESK_FRONT', col: REC_ORIGIN_COL + 8, row: REC_ORIGIN_ROW + 2 },
-        { uid: 'rec-game-pc-2', type: 'PC_FRONT_OFF', col: REC_ORIGIN_COL + 8, row: REC_ORIGIN_ROW + 2 },
-        { uid: 'rec-game-chair-2', type: 'WOODEN_CHAIR_FRONT', col: REC_ORIGIN_COL + 8, row: REC_ORIGIN_ROW + 4 },
-        { uid: 'rec-sofa-l', type: 'SOFA_FRONT', col: REC_ORIGIN_COL + w - 8, row: REC_ORIGIN_ROW + 3 },
-        { uid: 'rec-sofa-r', type: 'SOFA_FRONT', col: REC_ORIGIN_COL + w - 5, row: REC_ORIGIN_ROW + 3 },
+        {
+          uid: 'rec-game-desk-1',
+          type: 'DESK_FRONT',
+          col: REC_ORIGIN_COL + 4,
+          row: REC_ORIGIN_ROW + 2,
+        },
+        {
+          uid: 'rec-game-pc-1',
+          type: 'PC_FRONT_OFF',
+          col: REC_ORIGIN_COL + 4,
+          row: REC_ORIGIN_ROW + 2,
+        },
+        {
+          uid: 'rec-game-chair-1',
+          type: 'WOODEN_CHAIR_FRONT',
+          col: REC_ORIGIN_COL + 4,
+          row: REC_ORIGIN_ROW + 4,
+        },
+        {
+          uid: 'rec-game-desk-2',
+          type: 'DESK_FRONT',
+          col: REC_ORIGIN_COL + 8,
+          row: REC_ORIGIN_ROW + 2,
+        },
+        {
+          uid: 'rec-game-pc-2',
+          type: 'PC_FRONT_OFF',
+          col: REC_ORIGIN_COL + 8,
+          row: REC_ORIGIN_ROW + 2,
+        },
+        {
+          uid: 'rec-game-chair-2',
+          type: 'WOODEN_CHAIR_FRONT',
+          col: REC_ORIGIN_COL + 8,
+          row: REC_ORIGIN_ROW + 4,
+        },
+        {
+          uid: 'rec-sofa-l',
+          type: 'SOFA_FRONT',
+          col: REC_ORIGIN_COL + w - 8,
+          row: REC_ORIGIN_ROW + 3,
+        },
+        {
+          uid: 'rec-sofa-r',
+          type: 'SOFA_FRONT',
+          col: REC_ORIGIN_COL + w - 5,
+          row: REC_ORIGIN_ROW + 3,
+        },
       );
     },
   },
@@ -227,7 +374,8 @@ const STEPS: HomeBuildStepDef[] = [
     id: 'rec-championship',
     label: 'Rec Championship table',
     task: 'assemble the central ping-pong championship table and victory welcome clock',
-    orchestratorChat: 'Final Rec crew: central table-tennis table and welcome cactus in the lounge!',
+    orchestratorChat:
+      'Final Rec crew: central table-tennis table and welcome cactus in the lounge!',
     apply: (f, _ox, _oy, w) => {
       const cx = REC_ORIGIN_COL + Math.floor(w / 2) - 1;
       const cy = REC_ORIGIN_ROW + 5;
@@ -235,7 +383,12 @@ const STEPS: HomeBuildStepDef[] = [
         { uid: 'rec-ping-pong-table', type: 'TABLE_FRONT', col: cx, row: cy },
         { uid: 'rec-ping-pong-bench-l', type: 'CUSHIONED_BENCH', col: cx - 2, row: cy + 1 },
         { uid: 'rec-ping-pong-bench-r', type: 'CUSHIONED_BENCH', col: cx + 3, row: cy + 1 },
-        { uid: 'rec-trophy-cactus', type: 'CACTUS', col: REC_ORIGIN_COL + w - 2, row: REC_ORIGIN_ROW + REC_WING_H - 2 },
+        {
+          uid: 'rec-trophy-cactus',
+          type: 'CACTUS',
+          col: REC_ORIGIN_COL + w - 2,
+          row: REC_ORIGIN_ROW + REC_WING_H - 2,
+        },
       );
     },
   },

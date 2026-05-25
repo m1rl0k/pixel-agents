@@ -12,6 +12,7 @@ import type { FloorColor, WorkerFacilityLayout } from './workerFacilityLayout.js
 const WALL = 0;
 const VOID = 255;
 const FLOOR_PATTERN = 7;
+const EXPAND_DIRECTIONS = new Set(['north', 'south', 'east', 'west']);
 
 function tileIdx(cols: number, col: number, row: number): number {
   return row * cols + col;
@@ -19,6 +20,15 @@ function tileIdx(cols: number, col: number, row: number): number {
 
 function inBounds(layout: WorkerFacilityLayout, col: number, row: number): boolean {
   return col >= 0 && row >= 0 && col < layout.cols && row < layout.rows;
+}
+
+function isExpandDirection(value: unknown): value is 'north' | 'south' | 'east' | 'west' {
+  return typeof value === 'string' && EXPAND_DIRECTIONS.has(value);
+}
+
+function normalizeExpandAmount(value: unknown): number | null {
+  const amount = value === undefined ? 1 : value;
+  return Number.isInteger(amount) && amount > 0 ? amount : null;
 }
 
 /** Paint a floor tile at (col, row) with an optional color tint. Returns false if out-of-bounds. */
@@ -90,6 +100,8 @@ export function expandGrid(
   dir: 'north' | 'south' | 'east' | 'west',
   amount = 1,
 ): void {
+  if (normalizeExpandAmount(amount) === null) return;
+
   const { cols, rows } = layout;
 
   if (dir === 'south') {
@@ -173,7 +185,10 @@ export function applyWorldEdit(layout: WorkerFacilityLayout, op: string, args: u
       return removeAt(layout, col, row);
     }
     case 'expandGrid': {
-      const [dir, amount] = args as ['north' | 'south' | 'east' | 'west', number | undefined];
+      const [dir, rawAmount] = args;
+      if (!isExpandDirection(dir)) return false;
+      const amount = normalizeExpandAmount(rawAmount);
+      if (amount === null) return false;
       expandGrid(layout, dir, amount);
       return true;
     }
