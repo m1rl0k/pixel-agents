@@ -40,6 +40,7 @@ export const LEFT_WING_W = 8;
 export const RIGHT_WING_W = 8;
 export const WING_GAP = 1;
 export const REC_WING_H = 10;
+export const REC_WING_W = ROOMS_PER_ROW * ROOM_CELL_W + (ROOMS_PER_ROW - 1) * FACILITY_CORRIDOR_W;
 export const REC_GAP = 1;
 
 export const WORKER_GRID_START_COL = FACILITY_MARGIN + LEFT_WING_W + WING_GAP;
