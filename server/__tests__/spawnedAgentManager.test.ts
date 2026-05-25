@@ -281,4 +281,91 @@ process.stdin.resume();
       }),
     );
   });
+
+  it('queues a junior approval request when the senior is busy, and dispatches it when the senior turn ends', async () => {
+    const messages: Array<Record<string, unknown>> = [];
+    const registry = new ProviderRegistry();
+
+    const seniorProvider: StreamProvider = {
+      ...makeFakeProvider(),
+      id: 'claude-stream',
+      displayName: 'Claude Senior',
+    };
+    const juniorProvider: StreamProvider = {
+      ...makeFakeProvider(),
+      id: 'cursor',
+      displayName: 'Cursor Junior',
+    };
+
+    registry.register(seniorProvider);
+    registry.register(juniorProvider);
+
+    let nextId = 1;
+    manager = new SpawnedAgentManager({
+      registry,
+      emit: (msg) => messages.push(msg),
+      allocateId: () => nextId++,
+      getAutonomyLevel: () => 'manual',
+    });
+
+    const seniorId = manager.spawn({
+      providerId: 'claude-stream',
+      sessionId: 'sess-senior',
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+
+    const juniorId = manager.spawn({
+      providerId: 'cursor',
+      sessionId: 'sess-junior',
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+
+    expect(seniorId).toBe(1);
+    expect(juniorId).toBe(2);
+
+    manager.sendInput(seniorId, 'senior-work');
+
+    (manager as any).dispatch(juniorId, (manager as any).agents.get(juniorId), {
+      kind: 'toolStart',
+      toolId: 't-jun',
+      toolName: 'run_command',
+      input: { command: 'node script.js' },
+    });
+
+    (manager as any).dispatch(juniorId, (manager as any).agents.get(juniorId), {
+      kind: 'permissionRequest',
+    });
+
+    const queuedPerm = await waitFor(
+      messages,
+      (m) => m.type === 'agentToolPermission' && m.id === juniorId,
+    );
+    expect(queuedPerm.awaitingSenior).toBe(true);
+    expect(queuedPerm.isQueued).toBe(true);
+    expect(queuedPerm.approvingAgentId).toBe(seniorId);
+
+    const queue = (manager as any).seniorApprovalQueue.get(seniorId);
+    expect(queue).toBeDefined();
+    expect(queue.length).toBe(1);
+    expect(queue[0].toolName).toBe('run_command');
+
+    messages.length = 0;
+
+    (manager as any).dispatch(seniorId, (manager as any).agents.get(seniorId), {
+      kind: 'turnEnd',
+    });
+
+    const dispatchedPerm = await waitFor(
+      messages,
+      (m) => m.type === 'agentToolPermission' && m.id === juniorId,
+    );
+    expect(dispatchedPerm.awaitingSenior).toBe(true);
+    expect(dispatchedPerm.isQueued).toBe(false);
+    expect(dispatchedPerm.approvingAgentId).toBe(seniorId);
+
+    expect((manager as any).pendingSeniorApprovals.has(seniorId)).toBe(true);
+    expect((manager as any).seniorApprovalQueue.has(seniorId)).toBe(false);
+  });
 });

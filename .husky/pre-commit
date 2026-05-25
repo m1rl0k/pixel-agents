@@ -1,5 +1,19 @@
 #!/bin/sh
 set -e
 
+if ! command -v node >/dev/null 2>&1; then
+  export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+fi
+
+if ! command -v node >/dev/null 2>&1 && [ -s "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+  nvm use --silent >/dev/null 2>&1 || nvm use --silent default >/dev/null 2>&1 || true
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "husky - node not found. Install Node or set PATH in ~/.config/husky/init.sh."
+  exit 127
+fi
+
 echo "Formatting staged files..."
 npm exec -- lint-staged

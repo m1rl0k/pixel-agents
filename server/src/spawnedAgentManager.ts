@@ -136,6 +136,11 @@ export class SpawnedAgentManager {
    * Key = approving (senior) agent id; value = pending approval context.
    */
   private readonly pendingSeniorApprovals = new Map<number, PendingSeniorApproval>();
+  /**
+   * Tracks queued permission requests delegated to a senior agent for approval.
+   * Key = approving (senior) agent id; value = array of pending approval contexts.
+   */
+  private readonly seniorApprovalQueue = new Map<number, PendingSeniorApproval[]>();
   private readonly expectedRunnerStops = new WeakSet<ProcessRunner>();
   private readonly reportedWorkerFailures = new Set<number>();
 
@@ -407,8 +412,12 @@ export class SpawnedAgentManager {
           this.emit({ type: 'agentStatus', id, status: 'waiting' });
           this.emit({ type: 'agentToolsClear', id });
           if (!expectedStop && code !== null && code !== 0) {
-            this.reportWorkerFailure(id, `process exited with code ${code}${signal ? ` (${signal})` : ''}`);
+            this.reportWorkerFailure(
+              id,
+              `process exited with code ${code}${signal ? ` (${signal})` : ''}`,
+            );
           }
+          this.processNextQueuedApproval(id);
         },
         onError: (err) => {
           const expectedStop = this.expectedRunnerStops.has(runner);
@@ -418,6 +427,7 @@ export class SpawnedAgentManager {
           if (!expectedStop) {
             this.reportWorkerFailure(id, err.message);
           }
+          this.processNextQueuedApproval(id);
         },
       },
     );
@@ -491,6 +501,7 @@ export class SpawnedAgentManager {
         this.emit({ type: 'agentToolsClear', id });
         this.onAgentEvent?.(id, ev);
         // Persistent claude-stream sessions keep the runner alive until the process exits.
+        this.processNextQueuedApproval(id);
         return;
       case 'message':
         this.emit({ type: 'agentActivity', id, kind: 'message', role: ev.role, text: ev.text });
@@ -530,23 +541,49 @@ export class SpawnedAgentManager {
           const seniorId = findSeniorAgent(id, agent.workerTier, entries);
           if (seniorId !== null) {
             const { requestId } = this.permissionGate.wait(id);
-            this.pendingSeniorApprovals.set(seniorId, {
+            const isSeniorBusy =
+              this.pendingSeniorApprovals.has(seniorId) ||
+              (this.agents.get(seniorId)?.runner?.running ?? false);
+
+            const request: PendingSeniorApproval = {
               requestId,
               requestingAgentId: id,
               toolName,
               input,
-            });
-            const prompt = buildApprovalPrompt(id, toolName, summarizeInput(input));
-            this.sendInput(seniorId, prompt);
-            this.emit({
-              type: 'agentToolPermission',
-              id,
-              requestId,
-              toolName,
-              input,
-              awaitingSenior: true,
-              approvingAgentId: seniorId,
-            });
+            };
+
+            if (isSeniorBusy) {
+              let q = this.seniorApprovalQueue.get(seniorId);
+              if (!q) {
+                q = [];
+                this.seniorApprovalQueue.set(seniorId, q);
+              }
+              q.push(request);
+
+              this.emit({
+                type: 'agentToolPermission',
+                id,
+                requestId,
+                toolName,
+                input,
+                awaitingSenior: true,
+                approvingAgentId: seniorId,
+                isQueued: true,
+              });
+            } else {
+              this.pendingSeniorApprovals.set(seniorId, request);
+              const prompt = buildApprovalPrompt(id, toolName, summarizeInput(input));
+              this.sendInput(seniorId, prompt);
+              this.emit({
+                type: 'agentToolPermission',
+                id,
+                requestId,
+                toolName,
+                input,
+                awaitingSenior: true,
+                approvingAgentId: seniorId,
+              });
+            }
             return;
           }
         }
@@ -607,16 +644,66 @@ export class SpawnedAgentManager {
   }
 
   /**
+   * Dequeue and dispatch the next pending approval request for a senior agent if they
+   * are now idle and have requests waiting in their queue.
+   */
+  private processNextQueuedApproval(seniorId: number): void {
+    if (this.pendingSeniorApprovals.has(seniorId)) return;
+
+    const queue = this.seniorApprovalQueue.get(seniorId);
+    if (!queue || queue.length === 0) return;
+
+    const nextRequest = queue.shift()!;
+    if (queue.length === 0) {
+      this.seniorApprovalQueue.delete(seniorId);
+    }
+
+    this.pendingSeniorApprovals.set(seniorId, nextRequest);
+    const { requestId, requestingAgentId, toolName, input } = nextRequest;
+
+    const prompt = buildApprovalPrompt(requestingAgentId, toolName, summarizeInput(input));
+    this.sendInput(seniorId, prompt);
+
+    this.emit({
+      type: 'agentToolPermission',
+      id: requestingAgentId,
+      requestId,
+      toolName,
+      input,
+      awaitingSenior: true,
+      approvingAgentId: seniorId,
+      isQueued: false,
+    });
+  }
+
+  /**
    * Snapshot of all owned agents as AgentTierEntry for findSeniorAgent.
-   * An agent is available when its runner is not running and it has no pending
-   * approval request already queued to it.
+   * We prioritize completely idle and free seniors; if none exist, all active
+   * seniors are eligible to receive mailbox queue items.
    */
   private buildTierEntries(): AgentTierEntry[] {
-    return [...this.agents.entries()].map(([agentId, a]) => ({
-      id: agentId,
-      tier: a.workerTier,
-      // Available = runner not running AND not already handling a pending approval.
-      isAvailable: !(a.runner?.running ?? false) && !this.pendingSeniorApprovals.has(agentId),
-    }));
+    const idleAndFreeExists = [...this.agents.entries()].some(
+      ([agentId, a]) =>
+        !(a.runner?.running ?? false) &&
+        !this.pendingSeniorApprovals.has(agentId) &&
+        !this.seniorApprovalQueue.get(agentId)?.length,
+    );
+
+    return [...this.agents.entries()].map(([agentId, a]) => {
+      let isAvailable = false;
+      if (idleAndFreeExists) {
+        isAvailable =
+          !(a.runner?.running ?? false) &&
+          !this.pendingSeniorApprovals.has(agentId) &&
+          !this.seniorApprovalQueue.get(agentId)?.length;
+      } else {
+        isAvailable = true;
+      }
+      return {
+        id: agentId,
+        tier: a.workerTier,
+        isAvailable,
+      };
+    });
   }
 }
