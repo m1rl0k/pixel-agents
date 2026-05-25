@@ -47,6 +47,8 @@ export interface ClientMessageContext {
   /** Provider registry — exposes the spawnable provider list to the webview. */
   registry?: ProviderRegistry;
   orchestratorRef?: OrchestratorRef;
+  /** Apply a world-edit op to the current layout and broadcast layoutLoaded to all clients. */
+  onWorldEdit?: (op: string, args: unknown[]) => void;
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -230,6 +232,13 @@ export function handleClientMessage(
       break;
     }
 
+    case 'worldEdit': {
+      const op = typeof msg.op === 'string' ? msg.op : '';
+      const args = Array.isArray(msg.args) ? (msg.args as unknown[]) : [];
+      if (op) ctx.onWorldEdit?.(op, args);
+      break;
+    }
+
     default:
       // exportLayout, importLayout
       // require IDE-specific handling (not yet implemented for standalone)
@@ -320,6 +329,8 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const cfg = readConfig();
   const watchAllSessions = adapter?.getSetting(KEY_WATCH_ALL_SESSIONS, false) ?? false;
   const hooksEnabled = adapter?.getSetting(KEY_HOOKS_ENABLED, true) ?? true;
+  // Ensure stored provider keys are live in process.env (handles server restarts)
+  applyProviderKeysToEnv();
   send({
     type: 'settingsLoaded',
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
@@ -330,6 +341,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     hooksEnabled,
     hooksInfoShown: adapter?.getSetting(KEY_HOOKS_INFO_SHOWN, false) ?? false,
     externalAssetDirectories: cfg.externalAssetDirectories,
+    providerKeysSet: getProviderKeysPresence(),
   });
 
   // Sync runtime refs with the persisted settings so scanners behave correctly

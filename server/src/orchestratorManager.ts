@@ -120,7 +120,7 @@ export class OrchestratorManager {
   private cwd = process.cwd();
   private roomsComplete = false;
   private homeComplete = false;
-  /** Pending staggered-build timeouts from {@link scheduleStaggeredBuildOps}. */
+  /** Pending staggered-build timeouts from scheduleStaggeredBuildOps. */
   private readonly workerBuildTimeouts: ReturnType<typeof setTimeout>[] = [];
 
   private static readonly SHARED_GOAL_BACKLOG_LIMIT = 5;
@@ -350,8 +350,11 @@ export class OrchestratorManager {
   }
 
   /** Send builders to the commons site and assign the home-build task. */
-  private gatherHomeBuilders(step: ReturnType<typeof getHomeBuildStep>): void {
-    if (this.workerIds.length === 0) return;
+  private gatherHomeBuilders(step: ReturnType<typeof getHomeBuildStep>, stepIndex: number): void {
+    if (this.workerIds.length === 0) {
+      this.pushLayout(this.builtRooms);
+      return;
+    }
     const site = homeCommonsCenter();
     const builderCount = Math.min(3, this.workerIds.length);
     const builders: number[] = [];
@@ -395,6 +398,9 @@ export class OrchestratorManager {
       const builderLabel = this.manager.getDetails(builders[0])?.folderName ?? 'the build crew';
       this.facilityChat(helperId, `Support ${builderLabel} on ${step.label}`, builders[0] ?? null);
     }
+
+    // Stagger individual furniture placements so the office visibly grows from worker actions.
+    this.scheduleStaggeredBuildOps(step, stepIndex, builders);
   }
 
   private async expandNextRoom(): Promise<void> {
@@ -416,6 +422,65 @@ export class OrchestratorManager {
     if (this.builtRooms >= this.targetRooms) {
       this.completeRooms();
     }
+  }
+
+  /**
+   * Stagger individual furniture placements across the homemaking window so each
+   * builder's contribution appears as a distinct layout push.  Uses a fixed 600ms
+   * per-item delay — well within HOME_BUILD_INTERVAL_MS and safe from event-loop storms
+   * (the RELAY_MIN_MS relay throttle is separate and remains untouched).
+   */
+  private scheduleStaggeredBuildOps(
+    step: ReturnType<typeof getHomeBuildStep>,
+    stepIndex: number,
+    builders: number[],
+  ): void {
+    // Collect what this step places (some steps, like 'break-ground', place nothing).
+    const stepFurniture: PlacedFurniture[] = [];
+    step.apply(stepFurniture, HOME_ORIGIN_COL, HOME_ORIGIN_ROW, HOME_WING_W);
+
+    if (stepFurniture.length === 0) {
+      // No furniture — push the updated layout (e.g. home shell) immediately.
+      this.pushLayout(this.builtRooms);
+      return;
+    }
+
+    const capturedBuiltRooms = this.builtRooms;
+    /** Ms between individual worker placements — spread within the homemaking interval. */
+    const ITEM_DELAY_MS = 600;
+
+    for (let i = 0; i < stepFurniture.length; i++) {
+      const item = stepFurniture[i];
+      const builderId = builders[i % builders.length];
+      const delay = (i + 1) * ITEM_DELAY_MS;
+      const itemsToPlace = stepFurniture.slice(0, i + 1);
+
+      const t = setTimeout(() => {
+        // Render a partial layout: steps 0..stepIndex-1 baked in, plus items placed so far.
+        const partial = buildWorkerFacilityLayout(capturedBuiltRooms, stepIndex);
+        for (const fi of itemsToPlace) {
+          applyWorldEdit(partial, 'placeFurniture', [fi.type, fi.col, fi.row]);
+        }
+        this.onLayout(partial);
+        const builderLabel =
+          this.manager.getDetails(builderId)?.folderName ?? `Worker #${builderId}`;
+        this.facilityChat(
+          builderId,
+          `${builderLabel}: installed ${item.type} → ${step.label}`,
+          null,
+        );
+      }, delay);
+      this.workerBuildTimeouts.push(t);
+    }
+
+    // Final push: full layout with current homeBuiltSteps baked in permanently.
+    const finalT = setTimeout(
+      () => {
+        this.pushLayout(capturedBuiltRooms);
+      },
+      (stepFurniture.length + 1) * ITEM_DELAY_MS,
+    );
+    this.workerBuildTimeouts.push(finalT);
   }
 
   private activateWorker(roomIndex: number, workerId: number): void {
@@ -513,6 +578,7 @@ export class OrchestratorManager {
     const fromLabel =
       this.manager.getDetails(fromWorkerId)?.folderName ?? `Worker #${fromWorkerId}`;
     const snippet = task.length > 48 ? `${task.slice(0, 45)}...` : task;
+    this.emit({ type: 'agentMeet', fromId: fromWorkerId, toId: peerId });
     this.facilityChat(fromWorkerId, `${fromLabel} -> sync w/ ${peerLabel}: ${snippet}`, peerId);
     if (peerRoom >= 0) {
       this.store.dispatchTask(peerRoom, `peer review: ${task}`, peerId);
@@ -584,6 +650,7 @@ export class OrchestratorManager {
     const peerId = peers[Math.floor(Math.random() * peers.length)];
     const fromLabel =
       this.manager.getDetails(fromWorkerId)?.folderName ?? `Worker #${fromWorkerId}`;
+    this.emit({ type: 'agentMeet', fromId: fromWorkerId, toId: peerId });
     this.facilityChat(fromWorkerId, `${fromLabel} ping: ${snippet}`, peerId);
     this.markRelayRecipient(peerId, now);
     this.manager.sendInput(
@@ -948,5 +1015,7 @@ export class OrchestratorManager {
     }
     this.workerIds.length = 0;
     this.sharedGoals.length = 0;
+    for (const t of this.workerBuildTimeouts) clearTimeout(t);
+    this.workerBuildTimeouts.length = 0;
   }
 }

@@ -16,7 +16,7 @@ export function SpawnErrorToast({ message, onDismiss }: SpawnErrorToastProps) {
   }, [message, onDismiss]);
 
   return (
-    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-50 flex items-center gap-8 pixel-panel py-4 px-12 border-danger max-w-md">
+    <div className="absolute bottom-70 left-1/2 -translate-x-1/2 z-50 flex items-center gap-8 pixel-panel py-4 px-12 border-danger max-w-md">
       <span className="text-danger text-lg leading-none shrink-0">!</span>
       <span className="text-sm text-text overflow-hidden text-ellipsis">{message}</span>
       <Button

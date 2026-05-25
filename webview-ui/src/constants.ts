@@ -238,3 +238,13 @@ export const ROSTER_TITLE = 'View live agents, providers, and sandbox tiers';
 export const ROSTER_HEADER = 'Agents';
 export const ROSTER_LIVE_SUFFIX = 'live';
 export const ROSTER_EMPTY = 'No agents deployed.';
+
+// ── RPG Dialogue / AgentActivityFeed ────────────────────────
+/** Typewriter reveal speed for the latest assistant reply (chars/sec). */
+export const CHAT_TYPEWRITER_CHARS_PER_SEC = 60;
+/** Milliseconds between each typewriter character — ⌊1000 / CHAT_TYPEWRITER_CHARS_PER_SEC⌋. */
+export const CHAT_TYPEWRITER_INTERVAL_MS = 16;
+/** Thinking dots cycle interval (ms). */
+export const CHAT_THINKING_BLINK_MS = 500;
+/** Maximum lines shown in a collapsed tool output block before truncation. */
+export const CHAT_TOOL_MAX_LINES = 6;

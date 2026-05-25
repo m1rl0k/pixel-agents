@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toMajorMinor } from './changelogData.js';
 import { AgentPanel } from './components/AgentPanel.js';
+import { AgentRosterPanel } from './components/AgentRosterPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { DebugView } from './components/DebugView.js';
@@ -84,6 +85,8 @@ function App() {
     sandboxTiers,
     facilityProgress,
     facilityFeed,
+    providerKeysSet,
+    permissionRequestByAgent,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   const [facilityWatchMode, setFacilityWatchMode] = useState(true);
@@ -121,6 +124,7 @@ function App() {
 
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isRosterOpen, setIsRosterOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -211,6 +215,10 @@ function App() {
     setFacilityWatchMode(true);
     transport.send({ type: 'focusAgent', id });
     setPanelAgentId(id);
+  }, []);
+
+  const handleProviderKeySave = useCallback((name: string, value: string) => {
+    transport.send({ type: 'setProviderKey', name, value });
   }, []);
 
   const handleClosePanel = useCallback(() => {
@@ -360,6 +368,8 @@ function App() {
             panRef={editor.panRef}
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay || facilityProgress !== null}
+            agentProviders={agentProviders}
+            providers={providers}
           />
 
           {panelAgentId !== null && (
@@ -372,6 +382,7 @@ function App() {
               status={agentStatuses[panelAgentId] ?? 'idle'}
               tools={agentTools[panelAgentId] ?? []}
               activity={activityByAgent.get(panelAgentId) ?? []}
+              permissionRequestId={permissionRequestByAgent[panelAgentId]}
               onClose={handleClosePanel}
             />
           )}
@@ -447,11 +458,31 @@ function App() {
         </div>
       </Modal>
 
+      {isRosterOpen && (
+        <AgentRosterPanel
+          agents={agents}
+          agentProviders={agentProviders}
+          sandboxTiers={sandboxTiers}
+          agentStatuses={agentStatuses}
+          agentTools={agentTools}
+          providers={providers}
+          selectedAgentId={panelAgentId}
+          officeState={officeState}
+          onSelectAgent={(id) => {
+            handleAgentSelected(id);
+            transport.send({ type: 'focusAgent', id });
+          }}
+        />
+      )}
+
       <BottomToolbar
         isEditMode={editor.isEditMode}
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+        isRosterOpen={isRosterOpen}
+        onToggleRoster={() => setIsRosterOpen((v) => !v)}
+        agentCount={agents.length}
         providers={providers}
       />
 
@@ -488,6 +519,8 @@ function App() {
           setHooksEnabled(newVal);
           transport.send({ type: 'setHooksEnabled', enabled: newVal });
         }}
+        providerKeysSet={providerKeysSet}
+        onProviderKeySave={handleProviderKeySave}
       />
 
       {showMigrationNotice && (

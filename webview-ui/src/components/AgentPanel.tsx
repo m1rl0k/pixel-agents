@@ -37,6 +37,7 @@ interface AgentPanelProps {
   status: string;
   tools: ToolActivity[];
   activity: ActivityItem[];
+  permissionRequestId?: number;
   onClose: () => void;
 }
 
@@ -75,11 +76,13 @@ export function AgentPanel({
   status,
   tools,
   activity,
+  permissionRequestId,
   onClose,
 }: AgentPanelProps) {
   const [input, setInput] = useState('');
   const { label, color } = resolveWorkerStatus(status, tools);
   const hasPermission = tools.some((t) => t.permissionWait && !t.done);
+  const isActive = tools.some((t) => !t.done) || status === 'active';
   const restraintLabel = sandboxTierLabel(sandboxTier);
 
   const handleSend = useCallback(() => {
@@ -129,7 +132,7 @@ export function AgentPanel({
         </div>
       </div>
 
-      <AgentActivityFeed items={activity} />
+      <AgentActivityFeed items={activity} isActive={isActive} />
 
       {hasPermission && (
         <div className="flex flex-col gap-3 px-10 py-4 border-t border-border shrink-0">
@@ -138,7 +141,13 @@ export function AgentPanel({
             <Button
               variant="accent"
               size="sm"
-              onClick={() => sendClient({ type: 'permissionReply', id: agentId, approved: true })}
+              onClick={() =>
+                sendClient(
+                  permissionRequestId !== undefined
+                    ? { type: 'permissionReply', requestId: permissionRequestId, approved: true }
+                    : { type: 'permissionReply', id: agentId, approved: true },
+                )
+              }
               title="Approve the pending tool action"
               className="flex-1"
             >
@@ -147,7 +156,13 @@ export function AgentPanel({
             <Button
               variant="default"
               size="sm"
-              onClick={() => sendClient({ type: 'permissionReply', id: agentId, approved: false })}
+              onClick={() =>
+                sendClient(
+                  permissionRequestId !== undefined
+                    ? { type: 'permissionReply', requestId: permissionRequestId, approved: false }
+                    : { type: 'permissionReply', id: agentId, approved: false },
+                )
+              }
               title="Deny the pending tool action"
               className="flex-1 text-danger"
             >

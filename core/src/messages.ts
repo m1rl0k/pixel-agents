@@ -36,7 +36,9 @@ export type ServerMessage =
   | SettingsLoaded
   | ExternalAssetDirectoriesUpdated
   | WorkspaceFolders
-  | AgentDiagnostics;
+  | AgentDiagnostics
+  | AgentActivity
+  | ProviderList;
 
 export type ClientMessage =
   | WebviewReady
@@ -56,7 +58,13 @@ export type ClientMessage =
   | OpenSessionsFolder
   | AddExternalAssetDirectory
   | RemoveExternalAssetDirectory
-  | RequestDiagnostics;
+  | RequestDiagnostics
+  | SpawnAgent
+  | AgentInput
+  | SwarmInput
+  | AgentInterrupt
+  | StopSpawnedAgent
+  | PermissionReply;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -127,6 +135,7 @@ export interface AgentToolsClear {
 export interface AgentToolPermission {
   type: 'agentToolPermission';
   id: number;
+  requestId?: number;
 }
 
 export interface AgentToolPermissionClear {
@@ -189,23 +198,23 @@ export interface FacilityProgress {
   type: 'facilityProgress';
   builtRooms: number;
   totalRooms: number;
-  phase: AnonymousSchema_78;
+  phase: AnonymousSchema_79;
   homeSteps?: number;
   totalHomeSteps?: number;
   sharedGoals?: string[];
-  missionBoard?: AnonymousSchema_84[];
+  missionBoard?: AnonymousSchema_85[];
 }
 
-export type AnonymousSchema_78 = 'building' | 'homemaking' | 'operating';
+export type AnonymousSchema_79 = 'building' | 'homemaking' | 'operating';
 
-export interface AnonymousSchema_84 {
+export interface AnonymousSchema_85 {
   id: string;
   title: string;
-  status: AnonymousSchema_87;
+  status: AnonymousSchema_88;
   assignedWorkerId?: number;
 }
 
-export type AnonymousSchema_87 = 'pending' | 'processing' | 'completed' | 'accepted' | 'failed';
+export type AnonymousSchema_88 = 'pending' | 'processing' | 'completed' | 'accepted' | 'failed';
 
 export interface FacilityBuild {
   type: 'facilityBuild';
@@ -305,6 +314,33 @@ export interface AgentDiagnostics {
   agents: Record<string, any>[];
 }
 
+export interface AgentActivity {
+  type: 'agentActivity';
+  id: number;
+  kind: AnonymousSchema_174;
+  role?: AnonymousSchema_175;
+  text: string;
+}
+
+export type AnonymousSchema_174 = 'message' | 'reasoning' | 'tool';
+
+export type AnonymousSchema_175 = 'user' | 'assistant';
+
+export interface ProviderList {
+  type: 'providerList';
+  providers: AnonymousSchema_179[];
+}
+
+export interface AnonymousSchema_179 {
+  id: string;
+  displayName: string;
+  kind: AnonymousSchema_182;
+  readingTools: string[];
+  subagentToolNames: string[];
+}
+
+export type AnonymousSchema_182 = 'hook' | 'file' | 'stream';
+
 export interface WebviewReady {
   type: 'webviewReady';
 }
@@ -393,4 +429,42 @@ export interface RemoveExternalAssetDirectory {
 
 export interface RequestDiagnostics {
   type: 'requestDiagnostics';
+}
+
+export interface SpawnAgent {
+  type: 'spawnAgent';
+  providerId: string;
+  sandboxTier?: AnonymousSchema_222;
+  cwd?: string;
+  bypassPermissions?: boolean;
+}
+
+export type AnonymousSchema_222 = 'none' | 'container';
+
+export interface AgentInput {
+  type: 'agentInput';
+  id: number;
+  text: string;
+}
+
+export interface SwarmInput {
+  type: 'swarmInput';
+  text: string;
+}
+
+export interface AgentInterrupt {
+  type: 'agentInterrupt';
+  id: number;
+}
+
+export interface StopSpawnedAgent {
+  type: 'stopSpawnedAgent';
+  id: number;
+}
+
+export interface PermissionReply {
+  type: 'permissionReply';
+  id?: number;
+  requestId?: number;
+  approved: boolean;
 }

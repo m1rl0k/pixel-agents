@@ -142,6 +142,38 @@ describe('SpawnedAgentManager (integration: real node child)', () => {
     await waitFor(messages, (m) => m.type === 'agentClosed' && m.id === id);
   });
 
+  it('reuses a live runner on the second sendInput without respawning (OMC daemon)', async () => {
+    const messages: Array<Record<string, unknown>> = [];
+    const registry = new ProviderRegistry();
+    registry.register(makeFakeProvider());
+
+    let nextId = 1;
+    manager = new SpawnedAgentManager({
+      registry,
+      emit: (msg) => messages.push(msg),
+      allocateId: () => nextId++,
+    });
+
+    const id = manager.spawn({
+      providerId: 'fake-stream',
+      sessionId: 'sess-daemon',
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+
+    manager.sendInput(id, 'turn-one');
+    await waitFor(messages, (m) => m.type === 'agentToolDone' && m.id === id);
+    const createdAfterFirst = messages.filter((m) => m.type === 'agentCreated').length;
+    expect(createdAfterFirst).toBe(1);
+
+    manager.sendInput(id, 'turn-two');
+    await waitFor(
+      messages,
+      (m) => m.type === 'agentToolStart' && m.id === id && m.status === 'Run: turn-two',
+    );
+    expect(messages.filter((m) => m.type === 'agentCreated').length).toBe(1);
+  });
+
   it('keeps the agent slot after process exit and relaunches on the next sendInput', async () => {
     const EXIT_AFTER_DONE_SCRIPT = `
 process.stdout.write(JSON.stringify({ k: 'start' }) + '\\n');

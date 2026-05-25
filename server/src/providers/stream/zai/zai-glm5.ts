@@ -19,12 +19,29 @@ const systemPrompt =
 const messages = [{ role: 'system', content: systemPrompt }];
 const rl = readline.createInterface({ input: process.stdin });
 
+process.stdout.on('error', (err) => {
+  if (err && err.code === 'EPIPE') process.exit(0);
+  throw err;
+});
+
 function out(payload) {
   process.stdout.write(JSON.stringify(payload) + '\\n');
 }
 
 function stripThinking(text) {
   return text.replace(/<think>[\\s\\S]*?<\\/think>/g, '').trim();
+}
+
+function readPrompt(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return '';
+  try {
+    const framed = JSON.parse(trimmed);
+    if (framed && typeof framed.text === 'string') return framed.text.trim();
+  } catch {
+    // Legacy plain-text input.
+  }
+  return trimmed;
 }
 
 async function callZai(prompt) {
@@ -85,7 +102,7 @@ out({ e: 'msg', role: 'assistant', text: 'GLM-5 coding worker online.' });
 out({ e: 'done' });
 
 rl.on('line', (line) => {
-  const prompt = line.trim();
+  const prompt = readPrompt(line);
   if (!prompt) return;
   void callZai(prompt);
 });
@@ -175,6 +192,6 @@ export const zaiGlm5Provider: StreamProvider = {
   parseStreamLine,
 
   buildInputMessage(text: string): string {
-    return text;
+    return JSON.stringify({ text });
   },
 };

@@ -196,7 +196,8 @@ export class SpawnedAgentManager {
   sendInput(id: number, text: string): void {
     const agent = this.agents.get(id);
     if (!agent) return;
-    if (!agent.runner) {
+    // OMC Claude daemon: reuse a live stream-json process across turns (--resume only on respawn).
+    if (!agent.runner?.running) {
       this.startRunner(id, agent);
     }
     // LEARNING: inject the agent's accumulated memory into the prompt so it
@@ -386,6 +387,7 @@ export class SpawnedAgentManager {
         this.emit({ type: 'agentStatus', id, status: 'waiting' });
         this.emit({ type: 'agentToolsClear', id });
         this.onAgentEvent?.(id, ev);
+        // Persistent claude-stream sessions keep the runner alive until the process exits.
         return;
       case 'message':
         this.emit({ type: 'agentActivity', id, kind: 'message', role: ev.role, text: ev.text });

@@ -82,10 +82,14 @@ export interface ExtensionMessageState {
   activityByAgent: Map<number, ActivityItem[]>;
   spawnError: string | null;
   clearSpawnError: () => void;
+  /** Which provider API keys are saved (boolean only — never the value). */
+  providerKeysSet: Record<string, boolean>;
   agentProviders: Record<number, string>;
   sandboxTiers: Record<number, SandboxTier>;
   facilityProgress: FacilityProgress | null;
   facilityFeed: FacilityFeedItem[];
+  /** Latest permission gate id per agent (OMC permissionReply.requestId). */
+  permissionRequestByAgent: Record<number, number>;
 }
 
 /** Append an activity item to an agent's capped log, returning a new map. */
@@ -148,6 +152,10 @@ export function useExtensionMessages(
   const [sandboxTiers, setSandboxTiers] = useState<Record<number, SandboxTier>>({});
   const [facilityProgress, setFacilityProgress] = useState<FacilityProgress | null>(null);
   const [facilityFeed, setFacilityFeed] = useState<FacilityFeedItem[]>([]);
+  const [permissionRequestByAgent, setPermissionRequestByAgent] = useState<Record<number, number>>(
+    {},
+  );
+  const [providerKeysSet, setProviderKeysSet] = useState<Record<string, boolean>>({});
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -568,6 +576,10 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number;
+        const requestId = typeof msg.requestId === 'number' ? msg.requestId : undefined;
+        if (requestId !== undefined) {
+          setPermissionRequestByAgent((prev) => ({ ...prev, [id]: requestId }));
+        }
         setAgentTools((prev) => {
           const list = prev[id];
           if (!list) return prev;
@@ -588,6 +600,12 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'agentToolPermissionClear') {
         const id = msg.id as number;
+        setPermissionRequestByAgent((prev) => {
+          if (prev[id] === undefined) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         setAgentTools((prev) => {
           const list = prev[id];
           if (!list) return prev;
@@ -708,6 +726,13 @@ export function useExtensionMessages(
         if (typeof msg.extensionVersion === 'string') {
           setExtensionVersion(msg.extensionVersion as string);
         }
+        if (msg.providerKeysSet && typeof msg.providerKeysSet === 'object') {
+          setProviderKeysSet(msg.providerKeysSet as Record<string, boolean>);
+        }
+      } else if (msg.type === 'providerKeySet') {
+        const name = msg.name as string;
+        const isSet = msg.isSet as boolean;
+        setProviderKeysSet((prev) => ({ ...prev, [name]: isSet }));
       } else if (msg.type === 'externalAssetDirectoriesUpdated') {
         if (Array.isArray(msg.dirs)) {
           setExternalAssetDirectories(msg.dirs as string[]);
@@ -818,5 +843,7 @@ export function useExtensionMessages(
     sandboxTiers,
     facilityProgress,
     facilityFeed,
+    providerKeysSet,
+    permissionRequestByAgent,
   };
 }

@@ -115,6 +115,8 @@ components:
         - $ref: '#/components/schemas/WorkspaceFolders'
         # Diagnostics
         - $ref: '#/components/schemas/AgentDiagnostics'
+        - $ref: '#/components/schemas/AgentActivity'
+        - $ref: '#/components/schemas/ProviderList'
       discriminator: type
 
     ClientMessage:
@@ -137,6 +139,12 @@ components:
         - $ref: '#/components/schemas/AddExternalAssetDirectory'
         - $ref: '#/components/schemas/RemoveExternalAssetDirectory'
         - $ref: '#/components/schemas/RequestDiagnostics'
+        - $ref: '#/components/schemas/SpawnAgent'
+        - $ref: '#/components/schemas/AgentInput'
+        - $ref: '#/components/schemas/SwarmInput'
+        - $ref: '#/components/schemas/AgentInterrupt'
+        - $ref: '#/components/schemas/StopSpawnedAgent'
+        - $ref: '#/components/schemas/PermissionReply'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -162,6 +170,56 @@ components:
           items:
             type: string
           description: Tool names that spawn sub-agent characters (e.g. Task, Agent).
+
+    ProviderList:
+      description: Spawnable provider metadata for the webview spawn menu.
+      type: object
+      additionalProperties: false
+      required: [type, providers]
+      properties:
+        type:
+          const: providerList
+        providers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, displayName, kind, readingTools, subagentToolNames]
+            properties:
+              id:
+                type: string
+              displayName:
+                type: string
+              kind:
+                type: string
+                enum: [hook, file, stream]
+              readingTools:
+                type: array
+                items:
+                  type: string
+              subagentToolNames:
+                type: array
+                items:
+                  type: string
+
+    AgentActivity:
+      description: Append a live streamed activity item to an agent feed.
+      type: object
+      additionalProperties: false
+      required: [type, id, kind, text]
+      properties:
+        type:
+          const: agentActivity
+        id:
+          type: integer
+        kind:
+          type: string
+          enum: [message, reasoning, tool]
+        role:
+          type: string
+          enum: [user, assistant]
+        text:
+          type: string
 
     AgentCreated:
       description: A new agent has appeared in the office.
@@ -304,6 +362,11 @@ components:
           const: agentToolPermission
         id:
           type: integer
+        requestId:
+          type: integer
+          description: |
+            Correlates with permissionReply.requestId (OMC-style blocking gate).
+            Omitted for hook-only permission UI paths.
 
     AgentToolPermissionClear:
       description: Permission prompt resolved.
@@ -859,6 +922,87 @@ components:
       properties:
         type:
           const: requestDiagnostics
+
+    SpawnAgent:
+      description: Spawn an owned stream provider agent (standalone server).
+      type: object
+      additionalProperties: false
+      required: [type, providerId]
+      properties:
+        type:
+          const: spawnAgent
+        providerId:
+          type: string
+        sandboxTier:
+          type: string
+          enum: [none, container]
+        cwd:
+          type: string
+        bypassPermissions:
+          type: boolean
+
+    AgentInput:
+      description: Send a prompt to an owned agent stdin.
+      type: object
+      additionalProperties: false
+      required: [type, id, text]
+      properties:
+        type:
+          const: agentInput
+        id:
+          type: integer
+        text:
+          type: string
+
+    SwarmInput:
+      description: Operator goal for the facility orchestrator mission board.
+      type: object
+      additionalProperties: false
+      required: [type, text]
+      properties:
+        type:
+          const: swarmInput
+        text:
+          type: string
+
+    AgentInterrupt:
+      description: SIGINT an owned agent process.
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: agentInterrupt
+        id:
+          type: integer
+
+    StopSpawnedAgent:
+      description: Stop and remove an owned agent.
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: stopSpawnedAgent
+        id:
+          type: integer
+
+    PermissionReply:
+      description: Approve or deny a permission prompt (OMC blocking gate).
+      type: object
+      additionalProperties: false
+      required: [type, approved]
+      properties:
+        type:
+          const: permissionReply
+        id:
+          type: integer
+          description: Legacy agent id when requestId is omitted.
+        requestId:
+          type: integer
+          description: Preferred — matches agentToolPermission.requestId.
+        approved:
+          type: boolean
 
     # ── Supporting schemas ─────────────────────────────────────────
 

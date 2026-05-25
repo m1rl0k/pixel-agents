@@ -19,6 +19,7 @@ import {
   TOOL_OVERLAY_VERTICAL_OFFSET,
 } from '../../constants.js';
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
+import type { ProviderInfo } from '../../interaction/messages.js';
 import type { OfficeState } from '../engine/officeState.js';
 import type { ToolActivity } from '../types.js';
 import { CharacterState, TILE_SIZE } from '../types.js';
@@ -33,6 +34,8 @@ interface ToolOverlayProps {
   panRef: React.RefObject<{ x: number; y: number }>;
   onCloseAgent: (id: number) => void;
   alwaysShowOverlay: boolean;
+  agentProviders?: Record<number, string>;
+  providers?: ProviderInfo[];
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -76,6 +79,8 @@ export function ToolOverlay({
   panRef,
   onCloseAgent,
   alwaysShowOverlay,
+  agentProviders,
+  providers,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -159,6 +164,16 @@ export function ToolOverlay({
         const tokenRatio = totalTokens / MAX_CONTEXT_TOKENS;
         const hasExtraLines = !!(ch.folderName || teamRoleLabel);
 
+        // Provider badge (non-subagents only)
+        const overlayProviderId = !isSub && agentProviders ? agentProviders[id] : undefined;
+        const overlayProviderEntry =
+          overlayProviderId && providers
+            ? providers.find((p) => p.id === overlayProviderId)
+            : undefined;
+        const providerBadge = overlayProviderEntry
+          ? overlayProviderEntry.displayName
+          : overlayProviderId;
+
         return (
           <div
             key={id}
@@ -203,6 +218,18 @@ export function ToolOverlay({
                 {ch.folderName && (
                   <span className="text-2xs leading-none overflow-hidden text-ellipsis block">
                     {ch.folderName}
+                  </span>
+                )}
+                {providerBadge && (
+                  <span
+                    className="leading-none overflow-hidden text-ellipsis block"
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--color-accent-bright)',
+                      opacity: 0.65,
+                    }}
+                  >
+                    {providerBadge}
                   </span>
                 )}
               </div>

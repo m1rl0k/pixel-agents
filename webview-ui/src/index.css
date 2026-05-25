@@ -47,6 +47,22 @@
   /* Shadow */
   --shadow-pixel: 2px 2px 0px #0a0a14;
 
+  /* Pixel-art HUD token aliases
+     Used by component inline styles that need --pixel-* names.
+     Keep in sync with --color-* above. */
+  --pixel-border: var(--color-border);
+  --pixel-accent: var(--color-accent);
+  --pixel-bg-panel: var(--color-facility-panel-bg);
+  --pixel-shadow: var(--shadow-pixel);
+
+  /* Z-index stacking layers — keep components in sync:
+     z-10 : canvas controls       (ZoomControls buttons)
+     z-20 : HUD info overlays     (FacilityWatchFeed, FacilityBanner, VersionIndicator, Tooltip)
+     z-30 : panels + command bars (AgentPanel, SwarmCommandBar)
+     z-40 : always-on controls    (BottomToolbar — clickable above command bar on all viewports)
+     z-50 : toasts + modal bg     (SpawnErrorToast, Modal backdrop)
+     z-51 : modal content */
+
   /* Non-utility values */
   --vignette: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
   --btn-disabled-opacity: 0.35;
@@ -279,6 +295,68 @@
   .swarm-command-input::placeholder {
     color: var(--color-text-muted);
   }
+
+  /* ── RPG Dialogue Bubbles (AgentActivityFeed) ───────────────── */
+
+  /* Base bubble — sharp pixel corners, pixel shadow */
+  .rpg-bubble {
+    @apply relative break-words leading-snug text-sm whitespace-pre-wrap;
+    max-width: 88%;
+    padding: 8px 12px;
+    box-shadow: var(--shadow-pixel);
+  }
+
+  /* User message — accent-tinted right-aligned bubble */
+  .rpg-bubble-user {
+    @apply self-end;
+    background: rgba(96, 48, 255, 0.2);
+    border: 2px solid var(--color-accent);
+    color: var(--color-text);
+  }
+
+  /* Assistant message — dark left-aligned bubble */
+  .rpg-bubble-assistant {
+    @apply self-start;
+    background: rgba(20, 18, 40, 0.88);
+    border: 2px solid var(--color-border);
+    color: var(--color-text);
+  }
+
+  /* Reasoning — dimmed italic with left rail */
+  .rpg-reasoning {
+    @apply text-2xs italic break-words whitespace-pre-wrap leading-snug;
+    padding: 5px 10px;
+    color: rgba(255, 255, 255, 0.3);
+    border-left: 2px solid rgba(116, 111, 255, 0.25);
+  }
+
+  /* Tool call — amber-railed monospace line */
+  .rpg-tool-line {
+    @apply text-2xs break-all leading-snug;
+    font-family: 'Courier New', Courier, monospace;
+    padding: 5px 10px;
+    background: rgba(10, 10, 20, 0.7);
+    border-left: 3px solid var(--color-facility-amber);
+    color: var(--color-facility-amber);
+  }
+
+  /* Thinking indicator */
+  .rpg-thinking {
+    @apply text-2xs;
+    color: var(--color-text-muted);
+    animation: rpg-thinking-fade 2s ease-in-out infinite;
+  }
+
+  /* Typewriter cursor */
+  .rpg-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 0.8em;
+    background: var(--color-accent-bright);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: rpg-blink 0.8s steps(2, end) infinite;
+  }
 }
 
 @media (max-width: 760px) {
@@ -289,7 +367,8 @@
   }
 
   .swarm-command-shell {
-    bottom: 18px;
+    /* Push above BottomToolbar (~50px) so controls remain reachable */
+    bottom: 65px;
     width: calc(100vw - 24px);
   }
 
@@ -324,5 +403,25 @@
   }
   50% {
     opacity: 0.45;
+  }
+}
+
+@keyframes rpg-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes rpg-thinking-fade {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.3;
   }
 }

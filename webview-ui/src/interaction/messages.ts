@@ -65,7 +65,10 @@ export interface StopSpawnedAgentMessage {
 
 export interface PermissionReplyMessage {
   type: 'permissionReply';
-  id: number;
+  /** Legacy path when requestId is unknown. */
+  id?: number;
+  /** OMC-style gate id from agentToolPermission.requestId. */
+  requestId?: number;
   approved: boolean;
 }
 
