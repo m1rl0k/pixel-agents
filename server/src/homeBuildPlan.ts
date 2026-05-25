@@ -9,7 +9,7 @@ import type { PlacedFurniture } from './workerFacilityLayout.js';
 export interface HomeBuildStepDef {
   id: string;
   label: string;
-  /** Worker stdin task (demo provider). */
+  /** Worker stdin task. */
   task: string;
   orchestratorChat: string;
   apply: (

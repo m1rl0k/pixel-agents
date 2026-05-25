@@ -252,7 +252,7 @@ describe('spawnAgent bypassPermissions is always false', () => {
     };
 
     handleClientMessage(
-      { type: 'spawnAgent', providerId: 'demo', bypassPermissions: true, cwd: process.cwd() },
+      { type: 'spawnAgent', providerId: 'codex-cli', bypassPermissions: true, cwd: process.cwd() },
       () => undefined,
       { store: mockStore as any, spawnManager: mockSpawnManager as any, cache: null },
     );

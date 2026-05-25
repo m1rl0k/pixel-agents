@@ -55,9 +55,11 @@ export function scanTodoSignals(repoRoot: string, limit = 6): TodoSignal[] {
       [
         '-rn',
         '--include=*.ts',
+        '--include=*.tsx',
         'TODO\\|FIXME\\|HACK',
         join(repoRoot, 'server/src'),
         join(repoRoot, 'core/src'),
+        join(repoRoot, 'webview-ui/src'),
       ],
       { encoding: 'utf8', timeout: 5000 },
     );
@@ -158,6 +160,88 @@ function buildTestPrompt(moduleName: string, repoRoot: string): string {
   ].join('\n');
 }
 
+function buildContinuousPrompt(
+  title: string,
+  source: string,
+  repoRoot: string,
+  allowedFiles: readonly string[],
+): string {
+  return [
+    `SELF_MAINTENANCE: ${title}.`,
+    `Primary source: ${source}`,
+    '',
+    'Instructions:',
+    '1. Read the primary source and nearby tests before editing.',
+    `2. Keep changes tightly scoped to: ${allowedFiles.join(', ')}.`,
+    '3. Prefer a small code/UI/world-building improvement over a broad rewrite.',
+    '4. Run `npm run build` and `npm test` from the repo root (' + repoRoot + ') after changes.',
+    '5. If both pass, report exactly: ' + SELF_MAINTAIN_OK_MARKER + ' ' + title,
+    '6. If either fails, revert your change and report exactly: ' + SELF_MAINTAIN_FAIL_MARKER + ' <reason>',
+    '',
+    'CRITICAL SAFETY RULES:',
+    '- Do NOT modify .env files, secrets, database configs, or destructive DB operations.',
+    '- Coordinate with peer workers in your report so duplicate edits can be merged or avoided.',
+    '- The build and tests MUST stay green. Any failed change MUST be reverted.',
+  ].join('\n');
+}
+
+function continuousMaintenanceTasks(repoRoot: string): SelfMaintenanceTask[] {
+  return [
+    {
+      id: 'continuous-world-build-feedback',
+      title: `${SELF_MAINTAIN_PREFIX} Improve visible world-building feedback`,
+      prompt: buildContinuousPrompt(
+        'Improve visible world-building feedback',
+        'server/src/orchestratorManager.ts',
+        repoRoot,
+        [
+          'server/src/orchestratorManager.ts',
+          'webview-ui/src/hooks/useExtensionMessages.ts',
+          'webview-ui/src/office/engine/officeState.ts',
+        ],
+      ),
+      source: 'server/src/orchestratorManager.ts',
+      kind: 'refactor',
+    },
+    {
+      id: 'continuous-command-hud-polish',
+      title: `${SELF_MAINTAIN_PREFIX} Polish the command HUD mission/status loop`,
+      prompt: buildContinuousPrompt(
+        'Polish the command HUD mission/status loop',
+        'webview-ui/src/components/CommandBar.tsx',
+        repoRoot,
+        ['webview-ui/src/components/CommandBar.tsx', 'webview-ui/src/constants.ts'],
+      ),
+      source: 'webview-ui/src/components/CommandBar.tsx',
+      kind: 'refactor',
+    },
+    {
+      id: 'continuous-mission-contracts',
+      title: `${SELF_MAINTAIN_PREFIX} Tighten mission board context/contracts`,
+      prompt: buildContinuousPrompt(
+        'Tighten mission board context/contracts',
+        'server/src/omc/facilityTaskTree.ts',
+        repoRoot,
+        ['server/src/omc/facilityTaskTree.ts', 'server/src/orchestratorManager.ts'],
+      ),
+      source: 'server/src/omc/facilityTaskTree.ts',
+      kind: 'refactor',
+    },
+    {
+      id: 'continuous-provider-resilience',
+      title: `${SELF_MAINTAIN_PREFIX} Harden provider resilience evidence`,
+      prompt: buildContinuousPrompt(
+        'Harden provider resilience evidence',
+        'server/__tests__/providerFailover.test.ts',
+        repoRoot,
+        ['server/__tests__/providerFailover.test.ts', 'server/src/spawnedAgentManager.ts'],
+      ),
+      source: 'server/__tests__/providerFailover.test.ts',
+      kind: 'test',
+    },
+  ];
+}
+
 /**
  * Generate a bounded list of concrete self-maintenance tasks from real repo signals.
  *
@@ -170,6 +254,7 @@ export function generateSelfMaintenanceTasks(
   todoSignals?: TodoSignal[],
   untestedModules?: string[],
 ): SelfMaintenanceTask[] {
+  const includeContinuous = todoSignals === undefined && untestedModules === undefined;
   const todos = todoSignals ?? scanTodoSignals(repoRoot);
   const untested = untestedModules ?? scanUntestedModules(repoRoot);
   const tasks: SelfMaintenanceTask[] = [];
@@ -194,6 +279,13 @@ export function generateSelfMaintenanceTasks(
       source: `server/src/${mod}.ts`,
       kind: 'test',
     });
+  }
+
+  if (includeContinuous) {
+    for (const task of continuousMaintenanceTasks(repoRoot)) {
+      if (tasks.length >= MAX_SELF_MAINTENANCE_TASKS) break;
+      tasks.push(task);
+    }
   }
 
   return tasks;

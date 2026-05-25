@@ -24,7 +24,7 @@ import {
 import type { AssetCache } from './clientMessageHandler.js';
 import type { OrchestratorRef } from './clientMessageHandler.js';
 import { applyProviderKeysToEnv, readAutonomyLevel } from './configPersistence.js';
-import { DEFAULT_DEMO_WORKERS } from './facilityConstants.js';
+import { DEFAULT_WORKERS } from './facilityConstants.js';
 import {
   buildFacilityProviderStartupReport,
   formatFacilityStartupMessage,
@@ -75,7 +75,7 @@ function parseArgs(argv: string[]): CliArgs {
     port: 3100,
     host: '127.0.0.1',
     orchestrator: process.env.PIXEL_AGENTS_ORCHESTRATOR !== '0',
-    workers: Number(process.env.PIXEL_AGENTS_WORKERS ?? String(DEFAULT_DEMO_WORKERS)),
+    workers: Number(process.env.PIXEL_AGENTS_WORKERS ?? String(DEFAULT_WORKERS)),
     noReuse: process.env.PIXEL_AGENTS_NO_REUSE === '1',
   };
   for (let i = 0; i < argv.length; i++) {
@@ -101,7 +101,7 @@ function parseArgs(argv: string[]): CliArgs {
 Options:
   --port, -p <number>   Port to listen on (default: 3100)
   --host <string>       Host to bind to (default: 127.0.0.1)
-  --workers <number>    Worker rooms to build (default: ${DEFAULT_DEMO_WORKERS})
+  --workers <number>    Worker rooms to build (default: ${DEFAULT_WORKERS})
   --no-orchestrator     Start the server without the gamified worker facility
   --orchestrator        Start the gamified worker facility
   --no-reuse            Always start a fresh server, ignore existing server.json
@@ -113,7 +113,7 @@ Environment variables:
     }
   }
   if (!Number.isFinite(args.workers)) {
-    args.workers = DEFAULT_DEMO_WORKERS;
+    args.workers = DEFAULT_WORKERS;
   }
   return args;
 }
@@ -157,12 +157,11 @@ async function main(): Promise<void> {
   if (args.orchestrator) {
     const facilityReport = buildFacilityProviderStartupReport();
     console.log(`[Pixel Agents] ${formatFacilityStartupMessage(facilityReport)}`);
-    if (facilityReport.roster.length === 0 && !facilityReport.usingDemo) {
+    if (facilityReport.roster.length === 0) {
       console.error(
         '[Pixel Agents] Facility requires at least one real worker provider.\n' +
-          '  • Add KIMI_CODING_API_KEY or ZAI_GLM_*_CODING_API_KEY* to .env or ~/.pixel-agents/config.json\n' +
-          '  • Or install `claude` / `cursor-agent` on your PATH\n' +
-          '  • Simulation only: PIXEL_AGENTS_DEMO=1\n',
+          '  • Add KIMI_CODING_API_KEY, NVIDIA_NIM_API_KEY, or ZAI_GLM_*_CODING_API_KEY* to .env or ~/.pixel-agents/config.json\n' +
+          '  • Or install `claude`, `kimi`, `codex`, or `cursor-agent` on your PATH\n',
       );
       process.exit(1);
     }
@@ -268,7 +267,7 @@ async function main(): Promise<void> {
     }
 
     // Boot the gamified orchestrator facility by default. Worker rooms use every
-    // configured real provider lane, then demo only as an explicit fallback.
+    // configured real provider lane.
     let orchestrator: OrchestratorManager | null = null;
     if (args.orchestrator) {
       orchestrator = new OrchestratorManager({

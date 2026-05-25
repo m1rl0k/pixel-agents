@@ -2,7 +2,7 @@
  * In-process facility state with SpacetimeDB-style reducer semantics.
  *
  * When {@link SPACETIMEDB_DATABASE} is unset, this store is the source of truth.
- * When set, the orchestrator mirrors mutations via `spacetime call` (best-effort).
+ * When set, the orchestrator mirrors mutations via the local `spacetime call` CLI.
  */
 
 import * as fs from 'fs';
@@ -29,6 +29,21 @@ export interface FacilitySnapshot {
 }
 
 const REDUCER_LOG_CAP = 128;
+const FACILITY_PHASES = new Set<FacilityPhase>(['building', 'homemaking', 'operating']);
+
+function isFacilityPhase(value: unknown): value is FacilityPhase {
+  return typeof value === 'string' && FACILITY_PHASES.has(value as FacilityPhase);
+}
+
+function normalizeCounter(value: unknown, max?: number): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    return 0;
+  }
+  if (typeof max === 'number' && Number.isInteger(max) && max >= 0) {
+    return Math.min(value, max);
+  }
+  return value;
+}
 
 export class FacilityStateStore {
   private builtRooms = 0;
@@ -80,12 +95,10 @@ export class FacilityStateStore {
       if (fs.existsSync(filePath)) {
         const raw = fs.readFileSync(filePath, 'utf-8');
         const parsed = JSON.parse(raw);
-        this.builtRooms = typeof parsed.builtRooms === 'number' ? parsed.builtRooms : 0;
-        this.homeSteps = typeof parsed.homeSteps === 'number' ? parsed.homeSteps : 0;
-        this.phase =
-          typeof parsed.phase === 'string' ? (parsed.phase as FacilityPhase) : 'building';
-        this.tasksDispatched =
-          typeof parsed.tasksDispatched === 'number' ? parsed.tasksDispatched : 0;
+        this.builtRooms = normalizeCounter(parsed.builtRooms, this.totalRooms);
+        this.homeSteps = normalizeCounter(parsed.homeSteps);
+        this.phase = isFacilityPhase(parsed.phase) ? parsed.phase : 'building';
+        this.tasksDispatched = normalizeCounter(parsed.tasksDispatched);
         return true;
       }
     } catch (err) {
@@ -100,10 +113,10 @@ export class FacilityStateStore {
     phase: FacilityPhase,
     tasksDispatched: number,
   ): void {
-    this.builtRooms = builtRooms;
-    this.homeSteps = homeSteps;
+    this.builtRooms = normalizeCounter(builtRooms, this.totalRooms);
+    this.homeSteps = normalizeCounter(homeSteps);
     this.phase = phase;
-    this.tasksDispatched = tasksDispatched;
+    this.tasksDispatched = normalizeCounter(tasksDispatched);
     this.save();
   }
 

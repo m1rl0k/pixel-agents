@@ -103,6 +103,7 @@ components:
         - $ref: '#/components/schemas/LayoutLoaded'
         - $ref: '#/components/schemas/FacilityProgress'
         - $ref: '#/components/schemas/FacilityBuild'
+        - $ref: '#/components/schemas/FacilityWorldEdit'
         - $ref: '#/components/schemas/FacilityChat'
         # Assets
         - $ref: '#/components/schemas/FurnitureAssetsLoaded'
@@ -214,12 +215,21 @@ components:
           type: integer
         kind:
           type: string
-          enum: [message, reasoning, tool]
+          enum: [message, reasoning, tool, seniorApproval]
         role:
           type: string
           enum: [user, assistant]
         text:
           type: string
+        approved:
+          type: boolean
+          description: "Present when kind is seniorApproval."
+        requestingAgentId:
+          type: integer
+          description: "Present when kind is seniorApproval."
+        reason:
+          type: string
+          description: "Present when kind is seniorApproval."
 
     AgentCreated:
       description: A new agent has appeared in the office.
@@ -546,6 +556,39 @@ components:
                 enum: [pending, processing, completed, accepted, failed]
               assignedWorkerId:
                 type: integer
+        society:
+          type: object
+          additionalProperties: false
+          required: [name, charter, roles, commons, rituals]
+          properties:
+            name:
+              type: string
+            charter:
+              type: array
+              items:
+                type: string
+            roles:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [name, count, mandate]
+                properties:
+                  name:
+                    type: string
+                  count:
+                    type: integer
+                    minimum: 0
+                  mandate:
+                    type: string
+            commons:
+              type: array
+              items:
+                type: string
+            rituals:
+              type: array
+              items:
+                type: string
 
     FacilityBuild:
       description: |
@@ -570,6 +613,20 @@ components:
           type: array
           items:
             type: integer
+
+    FacilityWorldEdit:
+      description: |
+        Live facility-world edit emitted during operating work. The webview applies
+        the furniture placement without reseating active workers, so homebuilding
+        stays visible while agents continue their tasks.
+      type: object
+      additionalProperties: false
+      required: [type, item]
+      properties:
+        type:
+          const: facilityWorldEdit
+        item:
+          $ref: '#/components/schemas/PlacedFurniture'
 
     FacilityChat:
       description: Inter-agent chat bubble in the browser office floor.
@@ -1035,6 +1092,21 @@ components:
           type: integer
         seatId:
           type: [string, 'null']
+
+    PlacedFurniture:
+      description: Furniture placement used by live facility-world edit messages.
+      type: object
+      additionalProperties: false
+      required: [uid, type, col, row]
+      properties:
+        uid:
+          type: string
+        type:
+          type: string
+        col:
+          type: integer
+        row:
+          type: integer
 
     WorkspaceFolder:
       type: object

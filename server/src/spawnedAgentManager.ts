@@ -17,7 +17,6 @@
 
 import type { AgentEvent, StreamProvider } from '../../core/src/provider.js';
 import type { AgentMemoryStore } from './agentMemoryStore.js';
-import { WORKER_PROVIDER_ID } from './facilityConstants.js';
 import {
   type AgentTierEntry,
   buildApprovalPrompt,
@@ -42,6 +41,8 @@ import { buildDockerArgs, SandboxTier } from './sandbox/policy.js';
 
 /** Container command used when a sandbox policy is active. */
 const DOCKER_COMMAND = 'docker';
+const PROVIDER_AUTH_ERROR_RE =
+  /\b(401|403)\b|unauthorized|authentication.?error|access.?terminated|invalid.?api.?key/i;
 
 /** Dependencies injected into {@link SpawnedAgentManager}. */
 export interface SpawnedAgentManagerDeps {
@@ -122,6 +123,7 @@ export class SpawnedAgentManager {
   private readonly allocateId: () => number;
   private readonly makeRunner: () => ProcessRunner;
   private readonly onAgentEvent?: (id: number, event: AgentEvent) => void;
+  private readonly onWorkerFailed?: (id: number, reason: string) => void;
   private readonly memory?: AgentMemoryStore;
   private readonly getAutonomyLevel: () => AutonomyLevel;
 
@@ -134,6 +136,8 @@ export class SpawnedAgentManager {
    * Key = approving (senior) agent id; value = pending approval context.
    */
   private readonly pendingSeniorApprovals = new Map<number, PendingSeniorApproval>();
+  private readonly expectedRunnerStops = new WeakSet<ProcessRunner>();
+  private readonly reportedWorkerFailures = new Set<number>();
 
   constructor(deps: SpawnedAgentManagerDeps) {
     this.registry = deps.registry;
@@ -141,6 +145,7 @@ export class SpawnedAgentManager {
     this.allocateId = deps.allocateId;
     this.makeRunner = deps.makeRunner ?? (() => new ProcessRunner());
     this.onAgentEvent = deps.onAgentEvent;
+    this.onWorkerFailed = deps.onWorkerFailed;
     this.memory = deps.memory;
     this.getAutonomyLevel = deps.getAutonomyLevel ?? (() => DEFAULT_AUTONOMY_LEVEL);
   }
@@ -153,20 +158,13 @@ export class SpawnedAgentManager {
    * @returns the allocated agent id.
    */
   spawn(opts: SpawnAgentOptions): number {
-    let resolvedProviderId = opts.providerId;
-    let resolvedProvider = this.registry.get(resolvedProviderId);
+    const resolvedProviderId = opts.providerId;
+    const resolvedProvider = this.registry.get(resolvedProviderId);
     if (!resolvedProvider || resolvedProvider.kind !== 'stream') {
-      // Unknown or non-stream provider — warn and fall back to demo so the facility keeps running.
       const reason = !resolvedProvider
         ? `unknown provider "${resolvedProviderId}"`
         : `provider "${resolvedProviderId}" has kind "${resolvedProvider.kind}" (not a stream provider)`;
-      console.warn(`[SpawnedAgentManager] ${reason} — falling back to demo`);
-      resolvedProviderId = WORKER_PROVIDER_ID;
-      resolvedProvider = this.registry.get(WORKER_PROVIDER_ID);
-      if (!resolvedProvider || resolvedProvider.kind !== 'stream') {
-        console.error('[SpawnedAgentManager] Demo provider not registered — cannot spawn agent, skipping room');
-        return -1;
-      }
+      throw new Error(`SpawnedAgentManager: ${reason}`);
     }
     const streamProvider: StreamProvider = resolvedProvider as StreamProvider;
 
@@ -303,6 +301,7 @@ export class SpawnedAgentManager {
   stop(id: number): void {
     const agent = this.agents.get(id);
     if (!agent) return;
+    if (agent.runner) this.expectedRunnerStops.add(agent.runner);
     agent.runner?.stop();
     this.agents.delete(id);
     this.emit({ type: 'agentClosed', id });
@@ -353,7 +352,9 @@ export class SpawnedAgentManager {
     if (!agent) return false;
     const provider = this.registry.get(providerId);
     if (!provider || provider.kind !== 'stream') return false;
+    if (agent.runner) this.expectedRunnerStops.add(agent.runner);
     agent.runner?.stop();
+    this.reportedWorkerFailures.delete(id);
     agent.runner = null;
     agent.provider = provider as StreamProvider;
     agent.providerId = providerId;
@@ -364,6 +365,7 @@ export class SpawnedAgentManager {
   /** Stop all owned agents. */
   dispose(): void {
     for (const agent of this.agents.values()) {
+      if (agent.runner) this.expectedRunnerStops.add(agent.runner);
       agent.runner?.stop();
     }
     this.agents.clear();
@@ -371,7 +373,9 @@ export class SpawnedAgentManager {
 
   /** Start (or restart) the underlying CLI process for an owned agent. */
   private startRunner(id: number, agent: SpawnedAgent): void {
+    if (agent.runner) this.expectedRunnerStops.add(agent.runner);
     agent.runner?.stop();
+    this.reportedWorkerFailures.delete(id);
 
     const launch = agent.provider.buildLaunchCommand(agent.sessionId, agent.cwd, {
       bypassPermissions: agent.bypassPermissions,
@@ -385,10 +389,16 @@ export class SpawnedAgentManager {
       { command, args, cwd: agent.cwd, env: launch.env },
       {
         onStdoutLine: (line: string) => {
+          this.reportProviderOutput(id, line);
           const ev = agent.provider.parseStreamLine(line);
           if (ev) this.dispatch(id, agent, ev);
         },
-        onExit: () => {
+        onStderrLine: (line: string) => {
+          this.reportProviderOutput(id, line);
+        },
+        onExit: (code, signal) => {
+          const expectedStop = this.expectedRunnerStops.has(runner);
+          this.expectedRunnerStops.delete(runner);
           // Turn finished: keep the agent slot for relaunch on the next sendInput.
           agent.runner = null;
           if (agent.providerId === 'claude-stream') {
@@ -396,14 +406,34 @@ export class SpawnedAgentManager {
           }
           this.emit({ type: 'agentStatus', id, status: 'waiting' });
           this.emit({ type: 'agentToolsClear', id });
+          if (!expectedStop && code !== null && code !== 0) {
+            this.reportWorkerFailure(id, `process exited with code ${code}${signal ? ` (${signal})` : ''}`);
+          }
         },
-        onError: () => {
+        onError: (err) => {
+          const expectedStop = this.expectedRunnerStops.has(runner);
+          this.expectedRunnerStops.delete(runner);
           agent.runner = null;
           this.emit({ type: 'agentStatus', id, status: 'waiting' });
+          if (!expectedStop) {
+            this.reportWorkerFailure(id, err.message);
+          }
         },
       },
     );
     agent.runner = runner;
+  }
+
+  private reportProviderOutput(id: number, line: string): void {
+    if (PROVIDER_AUTH_ERROR_RE.test(line)) {
+      this.reportWorkerFailure(id, line.trim().slice(0, 240));
+    }
+  }
+
+  private reportWorkerFailure(id: number, reason: string): void {
+    if (this.reportedWorkerFailures.has(id)) return;
+    this.reportedWorkerFailures.add(id);
+    this.onWorkerFailed?.(id, reason);
   }
 
   /** Wrap a provider launch command per sandbox tier. */

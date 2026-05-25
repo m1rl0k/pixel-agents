@@ -85,17 +85,13 @@ describe('ProviderRegistry', () => {
     expect(r.list()).toHaveLength(1);
   });
 
-  it('registers demo provider when PIXEL_AGENTS_DEMO=1', () => {
-    const prev = process.env.PIXEL_AGENTS_DEMO;
-    process.env.PIXEL_AGENTS_DEMO = '1';
-    try {
-      const r = createDefaultRegistry();
-      expect(r.has('demo')).toBe(true);
-      expect(r.streamProviders().some((p) => p.id === 'demo')).toBe(true);
-    } finally {
-      if (prev === undefined) delete process.env.PIXEL_AGENTS_DEMO;
-      else process.env.PIXEL_AGENTS_DEMO = prev;
-    }
+  it('registers the owned Codex CLI provider when enabled', () => {
+    process.env.PIXEL_AGENTS_CODEX_WORKERS = '1';
+
+    const r = createDefaultRegistry();
+
+    expect(r.has('codex-cli')).toBe(true);
+    expect(r.get('codex-cli')?.kind).toBe('stream');
   });
 
   it('registers Kimi and Z.ai coding providers from configured API keys', () => {

@@ -144,6 +144,28 @@ describe('ProcessRunner', () => {
       });
     }));
 
+  it('ignores writes after the child closes stdin', () =>
+    new Promise<void>((resolve, reject) => {
+      runner = new ProcessRunner();
+
+      runner.start(
+        {
+          command: 'node',
+          args: ['-e', "process.stdin.destroy(); setTimeout(() => {}, 50)"],
+        },
+        {
+          onExit() {
+            resolve();
+          },
+          onError: reject,
+        },
+      );
+
+      setTimeout(() => {
+        expect(() => runner.writeStdin('late input')).not.toThrow();
+      }, 10);
+    }));
+
   it('throws if start() is called while already running', () => {
     runner = new ProcessRunner();
     runner.start(

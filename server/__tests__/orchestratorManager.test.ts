@@ -23,11 +23,16 @@ const PROVIDER_ENV_KEYS = [
   'ZAI_GLM_5_1_CODING_API_KEY',
   'ZAI_GLM_5_1_CODING_API_KEY_1',
   'ZAI_GLM_5_1_CODING_API_KEY_2',
+  'ZAI_GLM_5_CODING_API_KEY',
+  'ZAI_GLM_5_CODING_API_KEY_1',
+  'ZAI_GLM_5_CODING_API_KEY_2',
+  'NVIDIA_NIM_API_KEY',
   'PIXEL_AGENTS_CLAUDE_WORKERS',
   'PIXEL_AGENTS_CURSOR_WORKERS',
   'PIXEL_AGENTS_KIMI_WORKERS',
   'PIXEL_AGENTS_CODEX_WORKERS',
-  'PIXEL_AGENTS_DEMO',
+  'PIXEL_AGENTS_SELF_MAINTAIN',
+  'PIXEL_AGENTS_REDIS',
 ] as const;
 
 const ORIGINAL_PROVIDER_ENV = Object.fromEntries(
@@ -81,7 +86,9 @@ describe('OrchestratorManager', () => {
     process.env.PIXEL_AGENTS_CURSOR_WORKERS = '0';
     process.env.PIXEL_AGENTS_KIMI_WORKERS = '0';
     process.env.PIXEL_AGENTS_CODEX_WORKERS = '0';
-    process.env.PIXEL_AGENTS_DEMO = '1';
+    process.env.KIMI_API_KEY = 'test-kimi';
+    process.env.PIXEL_AGENTS_SELF_MAINTAIN = '0';
+    process.env.PIXEL_AGENTS_REDIS = '0';
   });
 
   afterEach(() => {
@@ -404,6 +411,26 @@ describe('OrchestratorManager', () => {
 
     expect(primaryPrompts).toHaveLength(3);
     expect(peerRelayPrompts).toHaveLength(1);
+  });
+
+  it('emits live world edits while workers continue operating tasks', async () => {
+    const { emit } = await runToOperating(1);
+
+    emit.mockClear();
+    vi.setSystemTime(Date.now() + 3_000);
+    (orch as unknown as { dispatch: () => void }).dispatch();
+
+    expect(emit.mock.calls.some(([msg]) => msg.type === 'facilityBuild')).toBe(true);
+    expect(emit.mock.calls.some(([msg]) => msg.type === 'facilityWorldEdit')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(700);
+    await flushExpansions();
+
+    const worldEdit = emit.mock.calls.find(([msg]) => msg.type === 'facilityWorldEdit')?.[0] as
+      | { item?: { uid?: string } }
+      | undefined;
+    expect(worldEdit?.item?.uid).toMatch(/^ops-/);
+    expect(orch!.getLayout().furniture.some((f) => f.uid === worldEdit?.item?.uid)).toBe(true);
   });
 
   it('suppresses recursive peer relays from bursty relay responses', async () => {

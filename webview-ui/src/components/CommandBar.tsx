@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { FacilityTempo, ProviderInfo, SandboxTier } from '../interaction/messages.js';
 import { sendClient } from '../interaction/messages.js';
+import type { FacilitySociety } from './FacilityBanner.js';
 import { SpawnMenu } from './SpawnMenu.js';
 
 interface FacilityProgressSnapshot {
   builtRooms: number;
   totalRooms: number;
   phase: 'building' | 'homemaking' | 'operating';
+  society?: FacilitySociety;
 }
 
 interface CommandBarProps {
@@ -83,6 +85,7 @@ export function CommandBar({ facilityProgress, agentCount, providers }: CommandB
   const { builtRooms, totalRooms, phase } = facilityProgress;
   const phaseColor = PHASE_COLOR[phase] ?? 'var(--color-facility-green)';
   const phaseLabel = PHASE_LABEL[phase] ?? phase.toUpperCase();
+  const societyName = facilityProgress.society?.name ?? 'Swarm Cooperative';
   const canSend = missionText.trim().length > 0;
 
   return (
@@ -124,6 +127,11 @@ export function CommandBar({ facilityProgress, agentCount, providers }: CommandB
         <span style={{ fontSize: 10, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
           <span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>{agentCount}</span>
           <span style={{ color: 'var(--color-text-muted)' }}> agents</span>
+        </span>
+
+        <span style={{ fontSize: 10, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+          <span style={{ color: 'var(--color-facility-cyan)', fontWeight: 700 }}>society</span>
+          <span style={{ color: 'var(--color-text-muted)' }}> {societyName}</span>
         </span>
       </div>
 

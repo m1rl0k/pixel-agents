@@ -92,6 +92,7 @@ function App() {
     permissionRequestByAgent,
     pendingApprovals,
     taskTree,
+    seniorApprovals,
     autonomyLevel,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
@@ -326,6 +327,7 @@ function App() {
               items={facilityFeed}
               missionBoard={facilityProgress.missionBoard}
               sharedGoals={facilityProgress.sharedGoals}
+              society={facilityProgress.society}
               onSelectAgent={handleFeedSelectAgent}
             />
           )}
@@ -491,6 +493,7 @@ function App() {
       {isMissionsOpen && (
         <MissionBoard
           items={taskTree}
+          seniorApprovals={seniorApprovals}
           onClose={() => setIsMissionsOpen(false)}
         />
       )}

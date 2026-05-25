@@ -5,7 +5,7 @@
  *   0 — human/operator (always the final escalation target; never in agentTierEntries)
  *   1 — senior: orchestrator + strongest coding models (Claude stream, Kimi K2.6)
  *   2 — mid: Z.ai GLM-5.1, GLM-5, Cursor, Antigravity
- *   3 — junior: demo / fallback lanes
+ *   3 — junior: unknown or newly added lanes
  *
  * Approval routing:
  *   - DB-danger patterns (from permissionPolicy denylist) → always human-gated.
@@ -35,7 +35,6 @@ export const DEFAULT_PROVIDER_TIER_MAP: Readonly<Record<string, WorkerTier>> = {
   'zai-glm-5-coding': 2,
   antigravity: 2,
   cursor: 2,
-  demo: 3,
 };
 
 /**

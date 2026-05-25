@@ -26,13 +26,19 @@ server/                             — Node daemon (HTTP, WebSocket, hooks, age
                                       home-build phase, dispatch/relay loop, stall detection,
                                       FacilityTaskTree, inter-agent relays
     facilityConstants.ts            — Provider IDs, room/timing constants, env-flag helpers
-    facilityProviders.ts            — Builds the ordered worker roster (Claude stream → Kimi Code →
-                                      Z.ai GLM-5.1 → Z.ai GLM-5 → Cursor); pickWorkerProviderForRoom();
-                                      startup report; PIXEL_AGENTS_CURSOR_WORKERS guard
+    facilityProviders.ts            — Builds the ordered worker roster (Claude stream-json →
+                                      Kimi CLI → Kimi Code API → Z.ai GLM-5.1 → Z.ai GLM-5 →
+                                      NVIDIA NIM × 4 → Cursor); pickWorkerProviderForRoom();
+                                      kimiCliEnabled() (PATH or PIXEL_AGENTS_KIMI_WORKERS);
+                                      startup report; gated list; demo floor
     facilityStateStore.ts           — Durable facility progress (builtRooms, phase, homeSteps)
     workerFacilityLayout.ts         — Layout builder for the 20-room grid + orchestrator wing
     roomSandbox.ts                  — Per-room workspace dir (~/.pixel-agents/worker-rooms/);
                                       sandboxPolicyForRoom() (PIXEL_AGENTS_WORKER_SANDBOX)
+    selfMaintenanceTasks.ts         — Scans repo for TODO/FIXME signals + untested modules;
+                                      generates bounded safe task prompts; workers emit
+                                      SELF_MAINTAIN_OK / SELF_MAINTAIN_FAIL after build gate;
+                                      activated by PIXEL_AGENTS_SELF_MAINTAIN or auto-detect
     spacetimeTasks.ts               — SpacetimeDB-themed task pool for worker dispatch
     assetLoader.ts                  — PNG → SpriteData, furniture catalog, default layout
     layoutPersistence.ts            — ~/.pixel-agents/layout.json
@@ -59,7 +65,10 @@ server/                             — Node daemon (HTTP, WebSocket, hooks, age
     providers/                      — Provider registry + all bundled adapters
       registry.ts                   — ProviderRegistry (Map<id, AgentProvider>), ProviderCapability
       defaultRegistry.ts            — Seeds registry from env: claude, codex, antigravity, cursor,
-                                      claude-stream, kimi-k2, zai-glm-5.1-coding, zai-glm-5-coding, demo
+                                      claude-stream, kimi-cli (PATH/PIXEL_AGENTS_KIMI_WORKERS),
+                                      kimi-k2 (API fallback when kimi-cli absent),
+                                      zai-glm-5.1-coding, zai-glm-5-coding,
+                                      nvidia-nim-* (NVIDIA_NIM_API_KEY), demo
       hook/claude/
         claude.ts                   — claudeProvider (HookProvider): normalizeHookEvent, install/uninstall
         claudeHookInstaller.ts      — copyHookScript, installHooks, uninstallHooks
@@ -69,6 +78,11 @@ server/                             — Node daemon (HTTP, WebSocket, hooks, age
       stream/claude/claudeStream.ts — claudeStreamProvider (stream-json owned Claude CLI)
       stream/demo/demo.ts           — demoProvider (token-free Node subprocess)
       stream/kimi/kimi.ts           — kimiProvider (Kimi Code, server-owned NDJSON worker)
+      stream/kimi/kimiCli.ts        — kimiCliProvider (kimi-cli): owns `kimi --print
+                                      --input-format stream-json` process; `--yolo` for bypass,
+                                      `--continue` for resume; strips <thinking> blocks
+      stream/nvidia/nim.ts          — 4 NVIDIA NIM providers via OpenAI-compatible API:
+                                      DeepSeek V4 Pro, MiniMax M2.7, Kimi K2.6, GLM-5.1
       stream/zai/zai.ts             — zaiGlmProvider (Z.ai GLM-5.1 coding)
       stream/zai/zai-glm5.ts       — zaiGlm5Provider (Z.ai GLM-5 coding)
     __tests__/                      — Vitest unit tests
@@ -117,7 +131,9 @@ Pixel Agents loads `.env` from the directory where you start the CLI.
 | `PIXEL_AGENTS_WORKER_SANDBOX`  | `1` to require Docker-backed worker rooms                                                  |
 | `PIXEL_AGENTS_CLAUDE_WORKERS`  | Force Claude stream-json workers on (`1`) or off (`0`); auto-detected from PATH when unset |
 | `PIXEL_AGENTS_CURSOR_WORKERS`  | Force Cursor workers on (`1`) or off (`0`); auto-detected from `cursor-agent` on PATH      |
+| `PIXEL_AGENTS_KIMI_WORKERS`    | Force Kimi CLI workers on (`1`) or off (`0`); auto-detected from `kimi` on PATH            |
 | `PIXEL_AGENTS_NO_REUSE`        | `1` (or use `--no-reuse`) to always start a fresh server + write `server-<port>.json`      |
+| `PIXEL_AGENTS_SELF_MAINTAIN`   | `1` to enable self-maintenance loop (auto-enabled when real providers are configured)      |
 | `PIXEL_AGENTS_FRESH_FACILITY`  | `1` to reset saved facility progress on boot                                               |
 | `PIXEL_AGENTS_FAST_FACILITY`   | `1` to speed up room build (800ms vs 3500ms)                                               |
 | `PIXEL_AGENTS_DEBUG`           | Enable debug logging                                                                       |
@@ -144,8 +160,19 @@ Pixel Agents loads `.env` from the directory where you start the CLI.
 | `ZAI_GLM_5_CODING_API_KEY_1`   | Second GLM-5 key slot                                                                      |
 | `ZAI_GLM_5_CODING_API_KEY_2`   | Third GLM-5 key slot                                                                       |
 | `ZAI_GLM_5_CODING_API_BASE`    | Custom endpoint                                                                            |
-| **SpacetimeDB bridge**         |                                                                                            |
-| `SPACETIMEDB_DATABASE`         | Mirror facility reducers to SpacetimeDB CLI                                                |
+| **NVIDIA NIM workers**                |                                                                                     |
+| `NVIDIA_NIM_API_KEY`                  | Enable all 4 NVIDIA NIM lanes (required; get from build.nvidia.com)                 |
+| `NVIDIA_NIM_BASE_URL`                 | Custom endpoint (default: `https://integrate.api.nvidia.com/v1`)                    |
+| `NVIDIA_NIM_MAX_TOKENS`               | Max tokens override (default: `8192`)                                               |
+| `NVIDIA_NIM_TEMPERATURE`              | Shared temperature override                                                         |
+| `NVIDIA_NIM_REQUEST_TIMEOUT_MS`       | Request timeout override                                                            |
+| `NVIDIA_NIM_HISTORY_LIMIT`            | Conversation history limit                                                          |
+| `NVIDIA_NIM_DEEPSEEK_MODEL`           | DeepSeek V4 Pro model override (default: `deepseek-ai/deepseek-v4-pro`)             |
+| `NVIDIA_NIM_MINIMAX_MODEL`            | MiniMax M2.7 model override (default: `minimaxai/minimax-m2.7`)                     |
+| `NVIDIA_NIM_KIMI_MODEL`               | Kimi K2.6 model override (default: `moonshotai/kimi-k2.6`)                          |
+| `NVIDIA_NIM_GLM_MODEL`                | GLM-5.1 model override (default: `z-ai/glm-5.1`)                                   |
+| **SpacetimeDB bridge**                |                                                                                     |
+| `SPACETIMEDB_DATABASE`                | Mirror facility reducers to SpacetimeDB CLI                                         |
 
 ## Testing
 
@@ -176,7 +203,7 @@ Pixel Agents loads `.env` from the directory where you start the CLI.
 **OrchestratorManager** — gamified 20-room worker facility:
 
 1. **Building phase** — carves one room every ~3.5 s; spawns a worker per room
-2. **Provider roster** (round-robin via `facilityProviders.ts`): Claude stream-json (if on PATH) → Kimi Code → Z.ai GLM-5.1 (up to 2 lanes) → Z.ai GLM-5 (up to 2 lanes) → Cursor (if on PATH); falls back to demo only when `PIXEL_AGENTS_DEMO=1`
+2. **Provider roster** (round-robin via `facilityProviders.ts`): Claude stream-json (PATH or `PIXEL_AGENTS_CLAUDE_WORKERS=1`) → Kimi CLI (`kimi` on PATH or `PIXEL_AGENTS_KIMI_WORKERS=1`) → Kimi Code API (`KIMI_CODING_API_KEY`; only when kimi-cli absent) → Z.ai GLM-5.1 (up to 2 lanes) → Z.ai GLM-5 (up to 2 lanes) → NVIDIA NIM × 4 (DeepSeek V4 Pro, MiniMax M2.7, Kimi K2.6, GLM-5.1; `NVIDIA_NIM_API_KEY`) → Cursor (PATH or `PIXEL_AGENTS_CURSOR_WORKERS=1`); falls back to demo only when `PIXEL_AGENTS_DEMO=1`
 3. **Homemaking phase** — workers build a shared commons (8 steps)
 4. **Operating phase** — periodic dispatch/relay loop: picks `SpacetimeDB` tasks from pool, relays findings between workers, stall-detects with retry
 5. **FacilityTaskTree** — operator goals added via Facility Command dispatch down the task tree

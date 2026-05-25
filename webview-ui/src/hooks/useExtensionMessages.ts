@@ -5,6 +5,7 @@ import type { FacilityFeedItem } from '../components/FacilityWatchFeed.js';
 import {
   AGENT_ACTIVITY_LOG_CAP,
   FACILITY_FEED_MAX_ITEMS,
+  MISSION_BOARD_APPROVALS_MAX,
   SPAWN_ERROR_DEFAULT,
 } from '../constants.js';
 import type { ActivityItem, ProviderInfo, SandboxTier } from '../interaction/messages.js';
@@ -35,6 +36,13 @@ export interface PendingApproval {
   requestId: number;
   agentId: number;
   arrivedAt: number;
+}
+
+/** One senior-approval event visible on the Mission Board. */
+export interface SeniorApprovalEvent {
+  text: string;
+  approved: boolean;
+  ts: number;
 }
 
 interface FurnitureAsset {
@@ -101,6 +109,8 @@ export interface ExtensionMessageState {
   pendingApprovals: Map<number, PendingApproval>;
   /** Live task-tree snapshot from the `taskTree` server WS message. */
   taskTree: MissionBoardItem[];
+  /** Recent senior-approval events for the Mission Board peer-approvals log. */
+  seniorApprovals: SeniorApprovalEvent[];
   /** Current permission autonomy level (auto/safe/manual). */
   autonomyLevel: 'auto' | 'safe' | 'manual';
 }
@@ -171,6 +181,7 @@ export function useExtensionMessages(
   const [providerKeysSet, setProviderKeysSet] = useState<Record<string, boolean>>({});
   const [pendingApprovals, setPendingApprovals] = useState<Map<number, PendingApproval>>(new Map());
   const [taskTree, setTaskTree] = useState<MissionBoardItem[]>([]);
+  const [seniorApprovals, setSeniorApprovals] = useState<SeniorApprovalEvent[]>([]);
   const [autonomyLevel, setAutonomyLevel] = useState<'auto' | 'safe' | 'manual'>('auto');
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
@@ -285,17 +296,32 @@ export function useExtensionMessages(
 
       if (msg.type === 'agentActivity') {
         const id = msg.id as number;
-        const kind = msg.kind as 'message' | 'reasoning';
+        const kind = msg.kind as string;
         const role = msg.role as 'user' | 'assistant' | undefined;
         const text = msg.text as string;
+
+        // Senior-approval events feed the Mission Board peer-approvals log.
+        if (kind === 'seniorApproval') {
+          const approved = Boolean(msg.approved);
+          setSeniorApprovals((prev) => {
+            const next = [...prev, { text, approved, ts: Date.now() }];
+            return next.length > MISSION_BOARD_APPROVALS_MAX
+              ? next.slice(next.length - MISSION_BOARD_APPROVALS_MAX)
+              : next;
+          });
+          pushFacilityFeed(os, id, text, 'message');
+          return;
+        }
+
+        const activityKind = kind as 'message' | 'reasoning';
         setActivityByAgent((prev) =>
-          appendActivity(prev, id, { kind, role, text, ts: Date.now() }),
+          appendActivity(prev, id, { kind: activityKind, role, text, ts: Date.now() }),
         );
-        if (kind === 'message' && role === 'assistant') {
+        if (activityKind === 'message' && role === 'assistant') {
           os.showChatBubble(id, text);
           pushFacilityFeed(os, id, text, 'message');
           focusIfWatching(os, id);
-        } else if (kind === 'reasoning' && facilitySocialRef.current) {
+        } else if (activityKind === 'reasoning' && facilitySocialRef.current) {
           pushFacilityFeed(os, id, text, 'message');
         }
         return;
@@ -806,6 +832,7 @@ export function useExtensionMessages(
           totalHomeSteps: msg.totalHomeSteps as number | undefined,
           sharedGoals: (msg.sharedGoals as string[] | undefined) ?? [],
           missionBoard: msg.missionBoard as MissionBoardItem[] | undefined,
+          society: msg.society as FacilityProgress['society'] | undefined,
         });
       } else if (msg.type === 'facilityBuild') {
         facilitySocialRef.current = true;
@@ -827,6 +854,18 @@ export function useExtensionMessages(
           enableFacilitySocial(os, agentId);
           os.visitBuildSite(agentId, col, row);
           os.showChatBubble(agentId, label);
+        }
+      } else if (msg.type === 'facilityWorldEdit') {
+        const item = msg.item as import('../office/types.js').PlacedFurniture | undefined;
+        if (
+          item &&
+          typeof item.uid === 'string' &&
+          typeof item.type === 'string' &&
+          typeof item.col === 'number' &&
+          typeof item.row === 'number'
+        ) {
+          os.placeFacilityFurniture(item);
+          onLayoutLoaded?.(os.getLayout());
         }
       } else if (msg.type === 'taskTree') {
         setTaskTree((msg.nodes as import('../components/FacilityBanner.js').MissionBoardItem[]) ?? []);
@@ -883,6 +922,7 @@ export function useExtensionMessages(
     permissionRequestByAgent,
     pendingApprovals,
     taskTree,
+    seniorApprovals,
     autonomyLevel,
   };
 }

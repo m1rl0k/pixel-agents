@@ -33,7 +33,7 @@ The current loop is an orchestrator facility: an overseer opens worker rooms, di
 - **Swarm goals** - send any task to the worker floor so agents can coordinate, review, hand off, and report.
 - **One worker, one character** - every owned or observed worker appears as a character with live animation.
 - **Agent control panel** - click a character to inspect activity, send an order, halt work, or dismiss the worker.
-- **Provider registry** - bundled adapters include Claude, Codex, Cursor, Antigravity, Kimi, Z.ai GLM, and a token-free demo worker.
+- **Provider registry** - bundled adapters include Claude, Codex CLI, Cursor, Antigravity, Kimi, Z.ai GLM, and NVIDIA NIM workers.
 - **Runtime boundaries** - optional Docker-backed worker rooms are available when explicitly enabled.
 - **Activity feeds** - assistant messages, reasoning, and tool events stream into the side panel.
 - **Layout editor** - customize the facility with floors, walls, furniture, seats, undo/redo, import, and export.
@@ -67,13 +67,14 @@ Then open the printed local URL:
 http://127.0.0.1:3100
 ```
 
-The orchestrator facility starts by default with **4** demo worker rooms. Useful startup options:
+The orchestrator facility starts by default with the full **20** worker rooms. Useful startup options:
 
 ```bash
 node dist/cli.js --workers 8
 node dist/cli.js --port 3200 --host 127.0.0.1
 node dist/cli.js --no-orchestrator
 PIXEL_AGENTS_WORKER_SANDBOX=1 node dist/cli.js --workers 4
+docker compose -f docker-compose.redis.yml up -d redis
 ```
 
 ## Usage
@@ -101,17 +102,21 @@ Agents communicate through normalized events: session starts, assistant/user mes
 
 The orchestrator uses stream providers today. Demo workers are token-free Node processes, so the game can run without API credentials. Real stream providers can be deployed from the same UI when their CLIs or API keys are available.
 
+Redis/Lua mission context is service-backed. Start local Redis with `docker compose -f docker-compose.redis.yml up -d redis`; the daemon uses `redis-cli` directly when installed, or `docker exec pixel-agents-redis redis-cli` when the Compose service is running. SpacetimeDB runs as a local reducer mirror when `SPACETIMEDB_DATABASE=pixel-agents-facility` and `SPACETIMEDB_SERVER=local` are set.
+
 ## Providers and Environment
 
 Pixel Agents loads a local `.env` file from the directory where you start the CLI. List variable names only in docs, issues, and screenshots; never share secret values.
 
 | Area                        | Variables                                                                                                                                                                                                                                                  |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime                     | `PIXEL_AGENTS_ORCHESTRATOR`, `PIXEL_AGENTS_WORKERS`, `PIXEL_AGENTS_DEMO`, `PIXEL_AGENTS_CLAUDE_WORKERS`, `PIXEL_AGENTS_CURSOR_WORKERS`, `PIXEL_AGENTS_WORKER_SANDBOX`, `PIXEL_AGENTS_NO_REUSE`, `PIXEL_AGENTS_FRESH_FACILITY`, `PIXEL_AGENTS_FAST_FACILITY`, `PIXEL_AGENTS_DEBUG`, `PIXEL_AGENTS_VERSION` |
+| Runtime                     | `PIXEL_AGENTS_ORCHESTRATOR`, `PIXEL_AGENTS_WORKERS`, `PIXEL_AGENTS_CLAUDE_WORKERS`, `PIXEL_AGENTS_KIMI_WORKERS`, `PIXEL_AGENTS_CODEX_WORKERS`, `PIXEL_AGENTS_CURSOR_WORKERS`, `PIXEL_AGENTS_WORKER_SANDBOX`, `PIXEL_AGENTS_NO_REUSE`, `PIXEL_AGENTS_FRESH_FACILITY`, `PIXEL_AGENTS_FAST_FACILITY`, `PIXEL_AGENTS_DEBUG`, `PIXEL_AGENTS_VERSION` |
 | Kimi Code stream worker     | `KIMI_CODING_API_KEY`, `KIMI_API_KEY`, `KIMI_CODING_API_BASE`, `KIMI_CODING_MODEL`, `KIMI_SYSTEM_PROMPT`, `KIMI_TEMPERATURE`                                                                                                                               |
+| NVIDIA NIM stream workers   | `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `NVIDIA_NIM_DEEPSEEK_MODEL`, `NVIDIA_NIM_MINIMAX_MODEL`, `NVIDIA_NIM_KIMI_MODEL`, `NVIDIA_NIM_GLM_MODEL`, `NVIDIA_NIM_MAX_TOKENS`, `NVIDIA_NIM_TEMPERATURE`, `NVIDIA_NIM_REQUEST_TIMEOUT_MS`                  |
 | Z.ai GLM-5.1 coding worker  | `ZAI_GLM_5_1_CODING_API_KEY`, `ZAI_GLM_5_1_CODING_API_KEY_1`, `ZAI_GLM_5_1_CODING_API_KEY_2`, `ZAI_GLM_5_1_CODING_API_BASE`, `ZAI_GLM_5_1_MODEL`, `ZAI_GLM_5_1_SYSTEM_PROMPT`, `ZAI_GLM_5_1_THINKING`, `ZAI_GLM_5_1_MAX_TOKENS`, `ZAI_GLM_5_1_TEMPERATURE` |
 | Z.ai GLM-5 coding worker    | `ZAI_GLM_5_CODING_API_KEY`, `ZAI_GLM_5_CODING_API_KEY_1`, `ZAI_GLM_5_CODING_API_KEY_2`, `ZAI_GLM_5_CODING_API_BASE`                                                                                                                                        |
-| Optional SpacetimeDB bridge | `SPACETIMEDB_DATABASE`                                                                                                                                                                                                                                     |
+| Redis/Lua context           | `PIXEL_AGENTS_REDIS`, `PIXEL_AGENTS_REDIS_URL`, `PIXEL_AGENTS_REDIS_PREFIX`, `PIXEL_AGENTS_REDIS_CONTAINER`                                                                                                                                                |
+| SpacetimeDB bridge          | `SPACETIMEDB_DATABASE`, `SPACETIMEDB_SERVER`                                                                                                                                                                                                                |
 
 Claude, Codex, Cursor, and Antigravity integration depends on the corresponding local CLI/session files. Those tools may use their own authentication outside Pixel Agents.
 
@@ -121,7 +126,7 @@ Claude, Codex, Cursor, and Antigravity integration depends on the corresponding 
 
 - **Daemon**: TypeScript, Fastify, WebSocket, provider registry, sandbox policy layer
 - **Game UI**: React 19, TypeScript, Vite, Canvas 2D
-- **State**: file-backed config/layouts plus optional SpacetimeDB bridge
+- **State**: file-backed config/layouts plus Redis/Lua mission context and SpacetimeDB reducer mirror
 - **Assets**: manifest-driven PNG furniture, floors, walls, and characters
 
 ## Office Assets
@@ -157,7 +162,7 @@ npm run dev
 - Stream-provider control is the first-class path. Hook/file providers can still observe external sessions, but not every provider can be fully controlled yet.
 - Docker-backed rooms are opt-in and require a local Docker installation.
 - The AsyncAPI protocol file still needs to catch up with the newer game messages such as `spawnAgent`, `agentActivity`, and `facilityProgress`.
-- The SpacetimeDB bridge is best-effort unless `SPACETIMEDB_DATABASE` is configured and the `spacetime` CLI is available.
+- Redis/Lua mission context requires the local Redis service or `redis-cli`; SpacetimeDB reducer mirroring requires `spacetime start` plus a published `pixel-agents-facility` database.
 - The repository still contains some legacy internal names such as `webview-ui`; they refer to the browser UI package.
 
 ## License

@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "description": "SpacetimeDB module for the Pixel Agents worker facility (Clockwork Labs open stack)",
   "scripts": {
-    "publish:local": "spacetime publish pixel-agents-facility --project-path spacetimedb"
+    "build": "spacetime build --module-path spacetimedb --lint-dir=",
+    "publish:local": "spacetime publish pixel-agents-facility --module-path spacetimedb --server local -y --build-options='--lint-dir='"
   },
   "dependencies": {
-    "spacetimedb": "^2.0.0"
+    "spacetimedb": "^2.2.0"
   }
 }

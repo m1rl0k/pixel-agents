@@ -28,6 +28,7 @@ export type ServerMessage =
   | LayoutLoaded
   | FacilityProgress
   | FacilityBuild
+  | FacilityWorldEdit
   | FacilityChat
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
@@ -203,6 +204,7 @@ export interface FacilityProgress {
   totalHomeSteps?: number;
   sharedGoals?: string[];
   missionBoard?: AnonymousSchema_85[];
+  society?: AnonymousSchema_90;
 }
 
 export type AnonymousSchema_79 = 'building' | 'homemaking' | 'operating';
@@ -216,6 +218,20 @@ export interface AnonymousSchema_85 {
 
 export type AnonymousSchema_88 = 'pending' | 'processing' | 'completed' | 'accepted' | 'failed';
 
+export interface AnonymousSchema_90 {
+  name: string;
+  charter: string[];
+  roles: AnonymousSchema_95[];
+  commons: string[];
+  rituals: string[];
+}
+
+export interface AnonymousSchema_95 {
+  name: string;
+  count: number;
+  mandate: string;
+}
+
 export interface FacilityBuild {
   type: 'facilityBuild';
   step: number;
@@ -223,6 +239,18 @@ export interface FacilityBuild {
   col: number;
   row: number;
   agentIds: number[];
+}
+
+export interface FacilityWorldEdit {
+  type: 'facilityWorldEdit';
+  item: PlacedFurniture;
+}
+
+export interface PlacedFurniture {
+  uid: string;
+  type: string;
+  col: number;
+  row: number;
 }
 
 export interface FacilityChat {
@@ -317,29 +345,32 @@ export interface AgentDiagnostics {
 export interface AgentActivity {
   type: 'agentActivity';
   id: number;
-  kind: AnonymousSchema_174;
-  role?: AnonymousSchema_175;
+  kind: AnonymousSchema_192;
+  role?: AnonymousSchema_193;
   text: string;
+  approved?: boolean;
+  requestingAgentId?: number;
+  reason?: string;
 }
 
-export type AnonymousSchema_174 = 'message' | 'reasoning' | 'tool';
+export type AnonymousSchema_192 = 'message' | 'reasoning' | 'tool' | 'seniorApproval';
 
-export type AnonymousSchema_175 = 'user' | 'assistant';
+export type AnonymousSchema_193 = 'user' | 'assistant';
 
 export interface ProviderList {
   type: 'providerList';
-  providers: AnonymousSchema_179[];
+  providers: AnonymousSchema_200[];
 }
 
-export interface AnonymousSchema_179 {
+export interface AnonymousSchema_200 {
   id: string;
   displayName: string;
-  kind: AnonymousSchema_182;
+  kind: AnonymousSchema_203;
   readingTools: string[];
   subagentToolNames: string[];
 }
 
-export type AnonymousSchema_182 = 'hook' | 'file' | 'stream';
+export type AnonymousSchema_203 = 'hook' | 'file' | 'stream';
 
 export interface WebviewReady {
   type: 'webviewReady';
@@ -434,12 +465,12 @@ export interface RequestDiagnostics {
 export interface SpawnAgent {
   type: 'spawnAgent';
   providerId: string;
-  sandboxTier?: AnonymousSchema_222;
+  sandboxTier?: AnonymousSchema_243;
   cwd?: string;
   bypassPermissions?: boolean;
 }
 
-export type AnonymousSchema_222 = 'none' | 'container';
+export type AnonymousSchema_243 = 'none' | 'container';
 
 export interface AgentInput {
   type: 'agentInput';

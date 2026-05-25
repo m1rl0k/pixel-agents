@@ -161,6 +161,33 @@ export class OfficeState {
     }
   }
 
+  /** Apply a live facility furniture edit without reseating active characters. */
+  placeFacilityFurniture(item: PlacedFurniture): void {
+    const furniture = this.layout.furniture.filter(
+      (f) => f.uid !== item.uid && (f.col !== item.col || f.row !== item.row),
+    );
+    furniture.push(item);
+    this.layout = {
+      ...this.layout,
+      furniture,
+      layoutRevision: (this.layout.layoutRevision ?? 0) + 1,
+    };
+    this.newFurnitureTimers.set(item.uid, 0.4);
+    this.seats = layoutToSeats(this.layout.furniture);
+    this.markOccupiedSeatsAssigned();
+    this.blockedTiles = getBlockedTiles(this.layout.furniture);
+    this.rebuildFurnitureInstances();
+    this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+  }
+
+  private markOccupiedSeatsAssigned(): void {
+    for (const ch of this.characters.values()) {
+      if (!ch.seatId) continue;
+      const seat = this.seats.get(ch.seatId);
+      if (seat) seat.assigned = true;
+    }
+  }
+
   /** Move a character to a random walkable tile */
   private relocateCharacterToWalkable(ch: Character): void {
     if (this.walkableTiles.length === 0) return;
@@ -644,7 +671,7 @@ export class OfficeState {
     walker.visitTileCol = null;
     walker.visitTileRow = null;
     walker.wanderTimer = 0;
-    if (!walker.isActive && walker.state === CharacterState.TYPE) {
+    if (walker.state === CharacterState.TYPE) {
       walker.state = CharacterState.IDLE;
     }
   }
@@ -657,7 +684,7 @@ export class OfficeState {
     walker.visitTileRow = row;
     walker.visitTargetId = null;
     walker.wanderTimer = 0;
-    if (!walker.isActive && walker.state === CharacterState.TYPE) {
+    if (walker.state === CharacterState.TYPE) {
       walker.state = CharacterState.IDLE;
     }
   }
@@ -676,8 +703,6 @@ export class OfficeState {
 
   private tickVisitTargets(): void {
     for (const ch of this.characters.values()) {
-      if (ch.isActive) continue;
-
       if (ch.visitTileCol !== null && ch.visitTileRow !== null) {
         const dist =
           Math.abs(ch.tileCol - ch.visitTileCol) + Math.abs(ch.tileRow - ch.visitTileRow);

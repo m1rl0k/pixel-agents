@@ -231,7 +231,7 @@ process.stdin.resume();
     );
   });
 
-  it('returns -1 for an unknown provider id (no demo fallback in registry)', () => {
+  it('throws for an unknown provider id', () => {
     const registry = new ProviderRegistry();
     registry.register(makeFakeProvider());
     manager = new SpawnedAgentManager({
@@ -240,62 +240,15 @@ process.stdin.resume();
       allocateId: () => 1,
     });
 
-    const result = manager.spawn({
-      providerId: 'does-not-exist',
-      sessionId: 's',
-      cwd: process.cwd(),
-      sandbox: null,
-    });
-    expect(result).toBe(-1);
+    expect(() =>
+      manager.spawn({
+        providerId: 'does-not-exist',
+        sessionId: 's',
+        cwd: process.cwd(),
+        sandbox: null,
+      }),
+    ).toThrow(/unknown provider "does-not-exist"/);
   });
-
-  it('runs demo provider multi-step tool chain with matching toolEnd ids', async () => {
-    const messages: Array<Record<string, unknown>> = [];
-    const registry = new ProviderRegistry();
-    const { demoProvider } = await import('../src/providers/stream/demo/demo.js');
-    registry.register(demoProvider);
-
-    let nextId = 1;
-    manager = new SpawnedAgentManager({
-      registry,
-      emit: (msg) => messages.push(msg),
-      allocateId: () => nextId++,
-    });
-
-    const id = manager.spawn({
-      providerId: 'demo',
-      sessionId: 'demo-chain',
-      cwd: process.cwd(),
-      sandbox: null,
-    });
-
-    await new Promise((r) => setTimeout(r, 150));
-
-    manager.sendInput(id, 'Review server/src/orchestratorManager.ts for dispatch pacing');
-
-    const toolStarts: Array<{ toolId: string; toolName: string }> = [];
-    const toolEnds: string[] = [];
-    const start = Date.now();
-    while (Date.now() - start < 5000) {
-      for (const m of messages) {
-        if (m.type === 'agentToolStart' && m.id === id && typeof m.toolId === 'string') {
-          if (!toolStarts.some((t) => t.toolId === m.toolId)) {
-            toolStarts.push({ toolId: m.toolId, toolName: String(m.toolName) });
-          }
-        }
-        if (m.type === 'agentToolDone' && m.id === id && typeof m.toolId === 'string') {
-          if (!toolEnds.includes(m.toolId)) toolEnds.push(m.toolId);
-        }
-      }
-      if (toolStarts.length >= 4 && toolEnds.length >= 4) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-
-    expect(toolStarts.map((t) => t.toolName)).toEqual(['Read', 'Grep', 'Write', 'Bash']);
-    for (const startEv of toolStarts) {
-      expect(toolEnds).toContain(startEv.toolId);
-    }
-  }, 8000);
 
   it('resync re-emits agentCreated with seatId and folderName', () => {
     const messages: Array<Record<string, unknown>> = [];

@@ -19,6 +19,7 @@ export interface FacilityProgress {
   totalHomeSteps?: number;
   sharedGoals?: string[];
   missionBoard?: MissionBoardItem[];
+  society?: FacilitySociety;
 }
 
 export interface MissionBoardItem {
@@ -26,6 +27,20 @@ export interface MissionBoardItem {
   title: string;
   status: 'pending' | 'processing' | 'completed' | 'accepted' | 'failed';
   assignedWorkerId?: number;
+}
+
+export interface FacilitySocietyRole {
+  name: string;
+  count: number;
+  mandate: string;
+}
+
+export interface FacilitySociety {
+  name: string;
+  charter: string[];
+  roles: FacilitySocietyRole[];
+  commons: string[];
+  rituals: string[];
 }
 
 interface FacilityBannerProps {

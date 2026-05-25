@@ -31,6 +31,9 @@
     "test:server": "cd server && npm test",
     "test": "npm run test:webview && npm run test:server",
     "facility": "PIXEL_AGENTS_FRESH_FACILITY=1 PIXEL_AGENTS_FAST_FACILITY=1 PIXEL_AGENTS_ORCHESTRATOR=1 node dist/cli.js --workers 20",
+    "infra:redis": "docker compose -f docker-compose.redis.yml up -d redis",
+    "infra:spacetime": "mkdir -p ~/.pixel-agents/spacetime && spacetime start --listen-addr 127.0.0.1:3000 --data-dir ~/.pixel-agents/spacetime",
+    "infra:spacetime:publish": "spacetime publish pixel-agents-facility --module-path spacetime-facility/spacetimedb --server local -y --build-options='--lint-dir='",
     "knip": "knip"
   },
   "devDependencies": {

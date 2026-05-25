@@ -45,9 +45,12 @@ export const DEFAULT_DANGER_PATTERNS: readonly RegExp[] = [
   /\bDROP\s+SCHEMA\b/i,
   /\bTRUNCATE\s+TABLE\b/i,
   /\bTRUNCATE\b(?:\s+TABLE)?\s+\S+/i,
-  // DELETE FROM <table> with no WHERE clause (mass delete) — matches with OR without a
-  // trailing ';'. A scoped `DELETE ... WHERE ...` is allowed; a bare table-wide delete prompts.
-  /\bDELETE\s+FROM\s+\S+(?![\s\S]*\bWHERE\b)/i,
+  // DELETE FROM <table> — fail-safe: flag EVERY DELETE FROM as DB-danger (always prompt).
+  // A WHERE-aware lookahead is NOT used: because classify() stringifies the WHOLE tool input,
+  // any unrelated "WHERE" (a second statement, a sibling field, a comment) would suppress the
+  // flag and re-open the mass-delete hole. A destructive-DB gate must fail safe, so we prompt
+  // on all DELETE FROM regardless of an attached WHERE.
+  /\bDELETE\s+FROM\s+\S+/i,
   // More destructive DDL
   /\bDROP\s+INDEX\b/i,
   /\bDROP\s+VIEW\b/i,

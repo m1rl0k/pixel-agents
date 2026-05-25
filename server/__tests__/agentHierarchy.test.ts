@@ -45,8 +45,8 @@ describe('getTierForProvider', () => {
     expect(getTierForProvider('zai-glm-5-coding')).toBe(2);
   });
 
-  it('classifies demo as tier 3 (junior)', () => {
-    expect(getTierForProvider('demo')).toBe(3);
+  it('classifies codex-cli as tier 1 (senior)', () => {
+    expect(getTierForProvider('codex-cli')).toBe(1);
   });
 
   it('defaults unknown providers to tier 3 (junior)', () => {
@@ -57,7 +57,7 @@ describe('getTierForProvider', () => {
   it('accepts a custom tier map override', () => {
     const customMap = { 'my-model': 1 as const };
     expect(getTierForProvider('my-model', customMap)).toBe(1);
-    expect(getTierForProvider('demo', customMap)).toBe(3); // falls back to default unknown → 3
+    expect(getTierForProvider('unknown-provider', customMap)).toBe(3);
   });
 
   it('covers every provider in DEFAULT_PROVIDER_TIER_MAP', () => {

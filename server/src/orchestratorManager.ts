@@ -14,6 +14,13 @@
 import type { AgentEvent } from '../../core/src/provider.js';
 import { AgentMemoryStore } from './agentMemoryStore.js';
 import {
+  type AgentMail,
+  AgentNetworkStore,
+  isBroadcastNetworkRecipient,
+  type NetworkCapture,
+  normalizeNetworkRecipient,
+} from './agentNetworkStore.js';
+import {
   dispatchIntervalMs,
   type FacilityTempo,
   HOME_BUILD_STEP_COUNT,
@@ -22,7 +29,6 @@ import {
   roomBuildIntervalMs,
   selfMaintainEnabled,
   setFacilityTempo,
-  WORKER_PROVIDER_ID,
   WORKER_ROOM_COUNT,
 } from './facilityConstants.js';
 import {
@@ -35,6 +41,7 @@ import {
 } from './facilityProviders.js';
 import { FacilityStateStore } from './facilityStateStore.js';
 import { getHomeBuildStep } from './homeBuildPlan.js';
+import { MissionContextStore } from './missionContextStore.js';
 import { FacilityTaskTree, type MissionBoardItem } from './omc/facilityTaskTree.js';
 import { MAX_STALL_RETRIES, shouldRetryStall } from './omc/stallDetection.js';
 import { ensureWorkerRoomDir, sandboxPolicyForRoom } from './roomSandbox.js';
@@ -78,11 +85,108 @@ export interface OrchestratorStartOptions {
 
 type WorkerProviderAssignment = FacilityProviderLane;
 
+interface FacilitySocietyRole {
+  name: string;
+  count: number;
+  mandate: string;
+}
+
+interface FacilitySocietySnapshot {
+  name: string;
+  charter: string[];
+  roles: FacilitySocietyRole[];
+  commons: string[];
+  rituals: string[];
+}
+
+const SOCIETY_CHARTER = [
+  'No silent idle: every room keeps a mission, handoff, review, or commons task.',
+  'Shared state belongs in Redis/Lua, SpacetimeDB tables, the mission board, mail, books, and concise peer reports.',
+  'Dangerous database or destructive filesystem actions escalate to the operator.',
+  'Commons building is real work: visible world improvements track operational progress.',
+];
+
+const SOCIETY_RITUALS = [
+  'Morning charter sync',
+  'Peer handoff before idle',
+  'Build/test proof before victory',
+  'Commons upgrade after operating dispatch',
+];
+
+interface OperatingWorldBuildPatch {
+  id: string;
+  label: string;
+  type: string;
+  col: number;
+  row: number;
+}
+
+const OPERATING_WORLD_BUILD_PATCHES: readonly OperatingWorldBuildPatch[] = [
+  {
+    id: 'review-bench',
+    label: 'Review bench installed',
+    type: 'WOODEN_BENCH',
+    col: HOME_ORIGIN_COL + 7,
+    row: HOME_ORIGIN_ROW + 7,
+  },
+  {
+    id: 'build-plant',
+    label: 'Build plant placed',
+    type: 'LARGE_PLANT',
+    col: HOME_ORIGIN_COL + 12,
+    row: HOME_ORIGIN_ROW + 7,
+  },
+  {
+    id: 'mission-board-left',
+    label: 'Mission board expanded',
+    type: 'WHITEBOARD',
+    col: HOME_ORIGIN_COL + 31,
+    row: HOME_ORIGIN_ROW + 1,
+  },
+  {
+    id: 'pairing-table',
+    label: 'Pairing table added',
+    type: 'SMALL_TABLE_FRONT',
+    col: HOME_ORIGIN_COL + 16,
+    row: HOME_ORIGIN_ROW + 7,
+  },
+  {
+    id: 'reference-shelf',
+    label: 'Reference shelf stocked',
+    type: 'DOUBLE_BOOKSHELF',
+    col: HOME_ORIGIN_COL + 11,
+    row: HOME_ORIGIN_ROW + 1,
+  },
+  {
+    id: 'ops-cactus',
+    label: 'Ops cactus placed',
+    type: 'CACTUS',
+    col: HOME_ORIGIN_COL + HOME_WING_W - 8,
+    row: HOME_ORIGIN_ROW + 7,
+  },
+  {
+    id: 'handoff-table',
+    label: 'Handoff table staged',
+    type: 'COFFEE_TABLE',
+    col: HOME_ORIGIN_COL + HOME_WING_W - 14,
+    row: HOME_ORIGIN_ROW + 5,
+  },
+  {
+    id: 'release-plant',
+    label: 'Release plant placed',
+    type: 'PLANT',
+    col: HOME_ORIGIN_COL + HOME_WING_W - 18,
+    row: HOME_ORIGIN_ROW + 7,
+  },
+];
+
 export class OrchestratorManager {
   private readonly manager: SpawnedAgentManager;
   private readonly emit: (msg: Record<string, unknown>) => void;
   private readonly onLayout: (layout: WorkerFacilityLayout) => void;
   private readonly store: FacilityStateStore;
+  private readonly missionContext = new MissionContextStore();
+  private readonly agentNetwork = new AgentNetworkStore();
 
   private orchestratorId: number | null = null;
   private readonly workerIds: number[] = [];
@@ -118,6 +222,10 @@ export class OrchestratorManager {
 
   private readonly providerCooldowns = new Map<string, number>();
   private readonly workerRoomFailAttempts = new Map<number, number>();
+  /** Extra commons furniture placed while agents keep working after the home is complete. */
+  private readonly operatingBuildPlacements: PlacedFurniture[] = [];
+  private operatingBuildCursor = 0;
+  private lastOperatingBuildAt = 0;
   /** Queue of self-maintenance tasks waiting to be dispatched. */
   private selfMaintainQueue: SelfMaintenanceTask[] = [];
   /** How many times dispatchToWorker() has been called — schedules self-maintenance slots. */
@@ -138,6 +246,7 @@ export class OrchestratorManager {
   private static readonly MAX_FAILOVER_ATTEMPTS = 2;
 
   private static readonly PROVIDER_COOLDOWN_MS = 300_000;
+  private static readonly OPERATING_WORLD_BUILD_MIN_MS = 2_500;
 
   constructor(deps: OrchestratorDeps) {
     this.manager = deps.manager;
@@ -180,7 +289,7 @@ export class OrchestratorManager {
       folderName: 'ORCHESTRATOR',
       seatId: ORCHESTRATOR_SEAT_ID,
       socialRoam: true,
-      bypassPermissions: orchestratorLane.providerId !== 'demo',
+      bypassPermissions: true,
     });
 
     this.narrate(
@@ -227,11 +336,31 @@ export class OrchestratorManager {
 
   private pushLayout(builtWorkerRooms: number): void {
     this.builtRooms = builtWorkerRooms;
-    const layout = buildWorkerFacilityLayout(builtWorkerRooms, this.homeBuiltSteps);
+    const layout = this.buildLayout(builtWorkerRooms);
     this.onLayout(layout);
   }
 
+  private buildLayout(builtWorkerRooms = this.builtRooms): WorkerFacilityLayout {
+    const layout = buildWorkerFacilityLayout(builtWorkerRooms, this.homeBuiltSteps);
+    if (this.homeBuiltSteps >= HOME_BUILD_STEP_COUNT) {
+      this.applyOperatingBuildPlacements(layout);
+    }
+    return layout;
+  }
+
+  private applyOperatingBuildPlacements(layout: WorkerFacilityLayout): void {
+    for (const item of this.operatingBuildPlacements) {
+      layout.furniture = layout.furniture.filter(
+        (f) => f.uid !== item.uid && (f.col !== item.col || f.row !== item.row),
+      );
+      layout.furniture.push({ ...item });
+    }
+    layout.layoutRevision += this.operatingBuildPlacements.length;
+  }
+
   private emitProgress(phase: 'building' | 'homemaking' | 'operating'): void {
+    const society = this.societySnapshot();
+    this.missionContext.recordSociety(society);
     this.emit({
       type: 'facilityProgress',
       builtRooms: this.builtRooms,
@@ -241,6 +370,7 @@ export class OrchestratorManager {
       totalHomeSteps: HOME_BUILD_STEP_COUNT,
       sharedGoals: this.missionBoardGoals(),
       missionBoard: this.missionBoardItems(),
+      society,
     });
   }
 
@@ -259,6 +389,81 @@ export class OrchestratorManager {
 
   private missionBoardItems(): MissionBoardItem[] {
     return this.taskTree.listMissionBoard(OrchestratorManager.SHARED_GOAL_BACKLOG_LIMIT);
+  }
+
+  private societySnapshot(): FacilitySocietySnapshot {
+    const providerCounts = new Map<string, number>();
+    for (const workerId of this.workerIds) {
+      const providerId = this.manager.getDetails(workerId)?.providerId ?? 'unknown';
+      providerCounts.set(providerId, (providerCounts.get(providerId) ?? 0) + 1);
+    }
+    const guildRoles = [...providerCounts.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([providerId, count]) => ({
+        name: `${providerId} guild`,
+        count,
+        mandate: 'turn missions into code, UI, research, reviews, and handoffs',
+      }));
+    const activeTasks = this.missionBoardItems().filter((item) => item.status === 'processing');
+    const books = this.agentNetwork.listBooks(99).length;
+    const knowledge = this.agentNetwork.searchKnowledge('', 99).length;
+
+    return {
+      name: 'Pixel Agents Cooperative',
+      charter: [...SOCIETY_CHARTER],
+      roles: [
+        {
+          name: 'Council',
+          count: this.orchestratorId === null ? 0 : 1,
+          mandate: 'set mission order, approve escalations, and coordinate the commons',
+        },
+        {
+          name: 'Worker rooms',
+          count: this.workerIds.length,
+          mandate: 'keep each room productive with mission work and peer reports',
+        },
+        {
+          name: 'Commons builders',
+          count: Math.min(this.workerIds.length, Math.max(this.homeBuiltSteps, 0)),
+          mandate: 'make progress visible through shared home and world upgrades',
+        },
+        ...guildRoles,
+      ],
+      commons: [
+        `${this.builtRooms}/${this.targetRooms} rooms inhabited`,
+        `${this.homeBuiltSteps}/${HOME_BUILD_STEP_COUNT} commons stages complete`,
+        `${activeTasks.length} active civic tasks`,
+        `${books} library books; ${knowledge} shared facts`,
+      ],
+      rituals: [...SOCIETY_RITUALS],
+    };
+  }
+
+  private societyPrompt(): string {
+    const society = this.societySnapshot();
+    return [
+      'SOCIETY_CONTRACT:',
+      `- ${society.name}`,
+      ...society.charter.map((law) => `- ${law}`),
+      'Roles:',
+      ...society.roles
+        .slice(0, 6)
+        .map((role) => `- ${role.name} (${role.count}): ${role.mandate}`),
+      'Commons:',
+      ...society.commons.map((item) => `- ${item}`),
+    ].join('\n');
+  }
+
+  private networkPrompt(workerId: number): string {
+    const roomIndex = this.workerIds.indexOf(workerId);
+    const details = this.manager.getDetails(workerId);
+    const label =
+      details?.folderName ??
+      (roomIndex >= 0 ? workerRoomMeta(roomIndex).label : `Worker #${workerId}`);
+    const sessionId =
+      details?.sessionId ??
+      (roomIndex >= 0 ? `worker-session-room-${roomIndex}` : `worker-session-${workerId}`);
+    return this.agentNetwork.promptContext(label, sessionId);
   }
 
   private completeRooms(): void {
@@ -461,7 +666,7 @@ export class OrchestratorManager {
     const task = pickSpacetimeTask(this.taskCursor);
     this.taskCursor++;
     this.store.dispatchTask(roomIndex, task, workerId);
-    this.manager.sendInput(workerId, this.buildPrimaryPrompt(roomIndex, task));
+    this.manager.sendInput(workerId, this.buildPrimaryPrompt(roomIndex, task, workerId));
     this.syncSharedGoalsToWorker(workerId, roomIndex);
   }
 
@@ -478,7 +683,7 @@ export class OrchestratorManager {
       sessionId,
       cwd: workerCwd,
       sandbox,
-      bypassPermissions: provider.providerId !== WORKER_PROVIDER_ID,
+      bypassPermissions: true,
       folderName: meta.label,
       seatId: meta.seatId,
       roomIndex,
@@ -486,32 +691,72 @@ export class OrchestratorManager {
       leadAgentId: this.orchestratorId ?? undefined,
     };
 
-    let workerId: number;
-    let laneLabel = provider.laneLabel;
-    try {
-      workerId = this.manager.spawn(spawnOpts);
-      if (workerId === -1) {
-        // spawn() returned sentinel -1 (demo not registered either) — skip room
-        throw new Error(`spawn returned -1 for provider "${provider.providerId}"`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[OrchestratorManager] Room ${roomIndex + 1}: spawn failed — ${msg}; retrying with demo`);
-      this.narrate(`${meta.label}: provider "${provider.providerId}" unavailable — using demo lane`);
-      laneLabel = 'demo swarm lane';
-      workerId = this.manager.spawn({ ...spawnOpts, providerId: WORKER_PROVIDER_ID, bypassPermissions: false });
-    }
+    const { workerId, lane } = this.spawnRealWorker(meta.label, roomIndex, spawnOpts, provider);
     this.workerIds.push(workerId);
+    this.missionContext.recordWorker({
+      sessionId,
+      workerId,
+      roomIndex,
+      label: meta.label,
+      providerId: lane.providerId,
+      capability: lane.capability,
+    });
 
-    this.facilityChat(workerId, `${meta.label} online -- ${laneLabel}`, null);
+    this.facilityChat(workerId, `${meta.label} online -- ${lane.laneLabel}`, null);
     if (this.orchestratorId !== null) {
       this.facilityChat(
         this.orchestratorId,
-        `Welcome ${meta.label}: ${provider.laneLabel}. Sync with peers in the corridor.`,
+        `Welcome ${meta.label}: ${lane.laneLabel}. Sync with peers in the corridor.`,
         workerId,
       );
     }
     return workerId;
+  }
+
+  private spawnRealWorker(
+    roomLabel: string,
+    roomIndex: number,
+    spawnOpts: {
+      providerId: string;
+      sessionId: string;
+      cwd: string;
+      sandbox: ReturnType<typeof sandboxPolicyForRoom>;
+      bypassPermissions: boolean;
+      folderName: string;
+      seatId: string;
+      roomIndex: number;
+      socialRoam: true;
+      leadAgentId?: number;
+    },
+    preferred: FacilityProviderLane,
+  ): { workerId: number; lane: FacilityProviderLane } {
+    const roster = this.workerRoster.length > 0 ? this.workerRoster : buildFacilityWorkerRoster();
+    const candidates = [
+      preferred,
+      ...roster.filter((lane) => lane.providerId !== preferred.providerId),
+    ];
+    const attempted = new Set<string>();
+
+    for (const lane of candidates) {
+      if (attempted.has(lane.providerId)) continue;
+      attempted.add(lane.providerId);
+      try {
+        const workerId = this.manager.spawn({ ...spawnOpts, providerId: lane.providerId });
+        return { workerId, lane };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.providerCooldowns.set(
+          lane.providerId,
+          Date.now() + OrchestratorManager.PROVIDER_COOLDOWN_MS,
+        );
+        console.warn(
+          `[OrchestratorManager] Room ${roomIndex + 1}: provider "${lane.providerId}" failed to spawn — ${msg}`,
+        );
+        this.narrate(`${roomLabel}: provider "${lane.providerId}" unavailable — trying next real lane`);
+      }
+    }
+
+    throw new Error(`${roomLabel}: no real provider lane could spawn`);
   }
 
   private dispatch(): void {
@@ -559,6 +804,7 @@ export class OrchestratorManager {
       this.workerRelayDepth.set(workerId, 0);
       this.emitTaskTree();
     }
+    this.recordMissionContext(workerId, roomNum - 1, task, taskNodeId);
 
     this.store.dispatchTask(roomNum - 1, task, workerId);
     this.narrate(`Order to ${workerRoomMeta(roomNum - 1).label}: ${task}`);
@@ -566,7 +812,8 @@ export class OrchestratorManager {
       this.facilityChat(this.orchestratorId, task, workerId);
     }
     this.relayPeerHandoff(workerId, task);
-    this.manager.sendInput(workerId, this.buildPrimaryPrompt(workerIndex, task));
+    this.manager.sendInput(workerId, this.buildPrimaryPrompt(workerIndex, task, workerId));
+    this.maybeScheduleOperatingWorldBuild(workerId, workerIndex, task);
   }
 
   /**
@@ -601,12 +848,99 @@ export class OrchestratorManager {
       this.workerRelayDepth.set(workerId, 0);
       this.emitTaskTree();
     }
+    this.recordMissionContext(workerId, roomIndex, title, taskNodeId);
     this.store.dispatchTask(roomIndex, title, workerId);
     this.narrate(`Self-maintain → ${workerRoomMeta(roomIndex).label}: ${mt.source}`);
     if (this.orchestratorId !== null) {
       this.facilityChat(this.orchestratorId, title, workerId);
     }
-    this.manager.sendInput(workerId, mt.prompt);
+    this.manager.sendInput(
+      workerId,
+      [
+        this.missionContext.promptContext(`worker-session-room-${roomIndex}`, roomIndex),
+        this.societyPrompt(),
+        this.networkPrompt(workerId),
+        mt.prompt,
+      ].join('\n\n'),
+    );
+    this.maybeScheduleOperatingWorldBuild(workerId, roomIndex, title);
+  }
+
+  private recordMissionContext(
+    workerId: number,
+    roomIndex: number,
+    title: string,
+    taskId?: string,
+  ): void {
+    const provider = this.workerProviderForRoom(roomIndex);
+    this.missionContext.recordMission({
+      taskId,
+      workerId,
+      roomIndex,
+      title,
+      providerId: provider.providerId,
+      phase: this.getCurrentPhase(),
+    });
+  }
+
+  private maybeScheduleOperatingWorldBuild(workerId: number, roomIndex: number, task: string): void {
+    if (!this.homeComplete || OPERATING_WORLD_BUILD_PATCHES.length === 0) return;
+    const now = Date.now();
+    if (now - this.lastOperatingBuildAt < OrchestratorManager.OPERATING_WORLD_BUILD_MIN_MS) {
+      return;
+    }
+    this.lastOperatingBuildAt = now;
+
+    const patch =
+      OPERATING_WORLD_BUILD_PATCHES[this.operatingBuildCursor % OPERATING_WORLD_BUILD_PATCHES.length];
+    this.operatingBuildCursor++;
+    const peerStart = this.operatingBuildCursor % Math.max(1, this.workerIds.length);
+    const helper = this.workerIds.filter((id) => id !== workerId)[peerStart % Math.max(1, this.workerIds.length - 1)];
+    const agentIds = helper === undefined ? [workerId] : [workerId, helper];
+    const taskSnippet = task.replace(/\s+/g, ' ').slice(0, 64);
+
+    this.emit({
+      type: 'facilityBuild',
+      step: HOME_BUILD_STEP_COUNT + this.operatingBuildCursor,
+      label: patch.label,
+      col: patch.col,
+      row: patch.row,
+      agentIds,
+    });
+    this.facilityChat(workerId, `${workerRoomMeta(roomIndex).label}: ${patch.label}`, null);
+    if (this.orchestratorId !== null) {
+      this.facilityChat(
+        this.orchestratorId,
+        `World build -> ${workerRoomMeta(roomIndex).label}: ${taskSnippet}`,
+        workerId,
+      );
+    }
+
+    const t = setTimeout(() => {
+      this.applyOperatingWorldBuildPatch(patch);
+    }, 700);
+    this.workerBuildTimeouts.push(t);
+  }
+
+  private applyOperatingWorldBuildPatch(patch: OperatingWorldBuildPatch): void {
+    const item: PlacedFurniture = {
+      uid: `ops-${patch.id}`,
+      type: patch.type,
+      col: patch.col,
+      row: patch.row,
+    };
+    const existing = this.operatingBuildPlacements.findIndex(
+      (f) => f.uid === item.uid || (f.col === item.col && f.row === item.row),
+    );
+    if (existing >= 0) {
+      this.operatingBuildPlacements[existing] = item;
+    } else {
+      this.operatingBuildPlacements.push(item);
+    }
+    this.emit({
+      type: 'facilityWorldEdit',
+      item,
+    });
   }
 
   /** Ask another worker to meet in the corridor before merging work. */
@@ -633,7 +967,7 @@ export class OrchestratorManager {
     this.workerRelayDepth.set(peerId, depth + 1);
     this.relayChildCountThisCycle++;
     this.markRelayRecipient(peerId, now);
-    this.manager.sendInput(peerId, this.buildPeerPrompt(fromLabel, task));
+    this.manager.sendInput(peerId, this.buildPeerPrompt(fromLabel, task, peerId));
   }
 
   /** Stream events from owned workers (tools, turns, chat) — OMC stall + task tree hooks. */
@@ -699,10 +1033,96 @@ export class OrchestratorManager {
     this.relayWorkerFinding(id, snippet);
   }
 
+  private captureAgentNetworkOutput(fromId: number, text: string): void {
+    const details = this.manager.getDetails(fromId);
+    const roomIndex = this.workerIds.indexOf(fromId);
+    const author =
+      details?.folderName ??
+      (roomIndex >= 0 ? workerRoomMeta(roomIndex).label : `Worker #${fromId}`);
+    const sessionId =
+      details?.sessionId ??
+      (roomIndex >= 0 ? `worker-session-room-${roomIndex}` : `worker-session-${fromId}`);
+    const captures = this.agentNetwork.captureFromText({ author, sessionId, text });
+    if (captures.length === 0) return;
+    this.announceNetworkCaptures(fromId, captures);
+  }
+
+  private announceNetworkCaptures(fromId: number, captures: NetworkCapture[]): void {
+    for (const capture of captures) {
+      if (capture.kind === 'mail') {
+        this.announceMailCapture(fromId, capture.mail);
+      } else if (capture.kind === 'book') {
+        this.facilityChat(fromId, `library: ${capture.book.title}`, null);
+      } else {
+        this.facilityChat(fromId, `knowledge: ${capture.knowledge.body.slice(0, 64)}`, null);
+      }
+    }
+  }
+
+  private announceMailCapture(fromId: number, mail: AgentMail): void {
+    const recipientId = this.workerIdForNetworkRecipient(mail.to);
+    const targetLabel =
+      recipientId === null ? mail.to : this.workerNetworkLabel(recipientId);
+    const prefix = isBroadcastNetworkRecipient(mail.to)
+      ? 'broadcast mail'
+      : `mail -> ${targetLabel}`;
+    this.facilityChat(fromId, `${prefix}: ${mail.subject}`, recipientId);
+
+    if (recipientId === null || recipientId === fromId) return;
+    this.manager.sendInput(
+      recipientId,
+      [
+        `AGENT_NETWORK_MAIL from ${mail.from}: ${mail.subject}`,
+        mail.body,
+        'Use this if it changes your current work. Reply with [MAIL to="Room 2" subject="..."]...[/MAIL], or preserve reusable knowledge with [BOOK title="..." tags="..."]...[/BOOK].',
+      ].join('\n\n'),
+    );
+  }
+
+  private workerIdForNetworkRecipient(recipient: string): number | null {
+    if (isBroadcastNetworkRecipient(recipient)) return null;
+    const target = this.networkLookupKey(recipient);
+    for (const workerId of this.workerIds) {
+      const roomIndex = this.workerIds.indexOf(workerId);
+      const details = this.manager.getDetails(workerId);
+      const candidates = [
+        details?.folderName,
+        details?.sessionId,
+        String(workerId),
+        `worker-${workerId}`,
+        `worker ${workerId}`,
+        `worker #${workerId}`,
+        roomIndex >= 0 ? workerRoomMeta(roomIndex).label : undefined,
+        roomIndex >= 0 ? `room-${roomIndex + 1}` : undefined,
+        roomIndex >= 0 ? `room ${roomIndex + 1}` : undefined,
+      ];
+      if (
+        candidates.some(
+          (candidate) => candidate !== undefined && this.networkLookupKey(candidate) === target,
+        )
+      ) {
+        return workerId;
+      }
+    }
+    return null;
+  }
+
+  private workerNetworkLabel(workerId: number): string {
+    const roomIndex = this.workerIds.indexOf(workerId);
+    return (
+      this.manager.getDetails(workerId)?.folderName ??
+      (roomIndex >= 0 ? workerRoomMeta(roomIndex).label : `Worker #${workerId}`)
+    );
+  }
+
+  private networkLookupKey(value: string): string {
+    return normalizeNetworkRecipient(value).replace(/[^a-z0-9._-]/g, '');
+  }
+
   /**
    * Called by SpawnedAgentManager when a worker exits with an auth error,
    * non-zero exit code, or repeated stalls.  Re-spawns with the next
-   * available provider lane; falls back to demo after MAX_FAILOVER_ATTEMPTS.
+   * available real provider lane after MAX_FAILOVER_ATTEMPTS.
    */
   handleWorkerProviderFailed(workerId: number, reason: string): void {
     const roomIndex = this.workerIds.indexOf(workerId);
@@ -761,7 +1181,7 @@ export class OrchestratorManager {
 
   /**
    * Pick the next non-cooled-down provider for a room.
-   * Walks the roster starting after failedProviderId; falls back to demo.
+   * Walks the roster starting after failedProviderId.
    */
   private pickNextProvider(roomIndex: number, failedProviderId: string): FacilityProviderLane {
     const now = Date.now();
@@ -782,8 +1202,15 @@ export class OrchestratorManager {
       return candidates[roomIndex % candidates.length];
     }
 
-    // All real providers are on cooldown — use demo
-    return { providerId: WORKER_PROVIDER_ID, laneLabel: 'demo swarm lane', capability: 'simulation' };
+    if (baseRoster.length === 0) {
+      throw new Error('No real provider lanes are configured for failover');
+    }
+
+    // If every real provider is temporarily cooled down, retry the next real lane
+    // anyway. The facility must stay on real providers; cooldown only affects preference.
+    const failedBaseIdx = baseRoster.findIndex((lane) => lane.providerId === failedProviderId);
+    const fallbackIdx = failedBaseIdx === -1 ? roomIndex : failedBaseIdx + 1 + roomIndex;
+    return baseRoster[fallbackIdx % baseRoster.length];
   }
 
   private relayWorkerFinding(fromWorkerId: number, snippet: string): void {
@@ -906,6 +1333,7 @@ export class OrchestratorManager {
     this.clearStallTimer(workerId);
     const assistantText = this.workerAssistantTurnText.get(workerId) ?? '';
     this.workerAssistantTurnText.delete(workerId);
+    this.captureAgentNetworkOutput(workerId, assistantText);
     const hadTools = this.workerHadToolsInTurn.delete(workerId);
     const taskId = this.workerActiveTaskId.get(workerId);
     if (!taskId) return;
@@ -920,6 +1348,10 @@ export class OrchestratorManager {
       this.taskTree.completeChild(taskId, assistantText.slice(0, 500));
       this.taskTree.acceptChild(taskId);
       this.workerActiveTaskId.delete(workerId);
+      const roomIndex = this.workerIds.indexOf(workerId);
+      if (roomIndex >= 0) {
+        this.maybeScheduleOperatingWorldBuild(workerId, roomIndex, node.description);
+      }
       this.emitTaskTree();
       return;
     }
@@ -959,6 +1391,10 @@ export class OrchestratorManager {
       this.taskTree.acceptChild(taskId);
     }
     this.workerActiveTaskId.delete(workerId);
+    const roomIndex = this.workerIds.indexOf(workerId);
+    if (roomIndex >= 0) {
+      this.maybeScheduleOperatingWorldBuild(workerId, roomIndex, node.description);
+    }
     this.emitTaskTree();
   }
 
@@ -969,6 +1405,7 @@ export class OrchestratorManager {
     }
     const goals = this.sharedGoals.map((goal, index) => `${index + 1}. ${goal}`).join('\n');
     const latestGoal = this.sharedGoals[this.sharedGoals.length - 1];
+    const sessionId = `worker-session-room-${roomIndex}`;
     const provider = this.workerProviderForRoom(roomIndex);
     this.store.dispatchTask(roomIndex, `shared goals backlog: ${latestGoal}`, workerId);
     this.facilityChat(
@@ -982,6 +1419,9 @@ export class OrchestratorManager {
         'SHARED_GOAL_BACKLOG: Join the swarm mission board.',
         `Your role: ${workerRoomMeta(roomIndex).label}.`,
         `Provider lane: ${provider.laneLabel}; use it for ${provider.capability}.`,
+        this.missionContext.promptContext(sessionId, roomIndex),
+        this.societyPrompt(),
+        this.networkPrompt(workerId),
         'Active goals:',
         goals,
         'Pick the highest-leverage contribution you can make now, then report handoffs, tests, or blockers.',
@@ -1004,6 +1444,9 @@ export class OrchestratorManager {
       'SHARED_USER_GOAL: Work with the swarm on the user goal below.',
       `Your role: ${workerRoomMeta(roomIndex).label}.`,
       `Provider lane: ${provider.laneLabel}; use it for ${provider.capability}.`,
+      this.missionContext.promptContext(sessionId, roomIndex),
+      this.societyPrompt(),
+      this.networkPrompt(workerId),
     ];
 
     if (memories) {
@@ -1030,7 +1473,7 @@ export class OrchestratorManager {
     this.manager.sendInput(workerId, prompt);
   }
 
-  private buildPrimaryPrompt(roomIndex: number, task: string): string {
+  private buildPrimaryPrompt(roomIndex: number, task: string, workerId: number): string {
     const label = workerRoomMeta(roomIndex).label;
     const sessionId = `worker-session-room-${roomIndex}`;
     const memoryStore = new AgentMemoryStore();
@@ -1042,6 +1485,9 @@ export class OrchestratorManager {
       `You are ${label}. Your home room is only a visual browser-floor base; collaborate with the whole swarm.`,
       `Provider lane: ${provider.laneLabel}; use it for ${provider.capability}.`,
       `Project root: ${this.cwd}`,
+      this.missionContext.promptContext(sessionId, roomIndex),
+      this.societyPrompt(),
+      this.networkPrompt(workerId),
     ];
 
     if (memories) {
@@ -1060,10 +1506,11 @@ export class OrchestratorManager {
     return promptParts.join('\n');
   }
 
-  private buildPeerPrompt(fromLabel: string, task: string): string {
+  private buildPeerPrompt(fromLabel: string, task: string, workerId: number): string {
     return [
       `COLLAB_RELAY from ${fromLabel}: ${task}`,
       'Meet this worker in the shared plan. Review, extend, test, research, design, or operationalize the idea.',
+      this.networkPrompt(workerId),
       'Reply with one concrete contribution, a handoff, or a blocker; avoid repeating the prompt.',
     ].join('\n');
   }
@@ -1199,7 +1646,7 @@ export class OrchestratorManager {
 
   /** Current layout for late-joining webviews. */
   getLayout(): WorkerFacilityLayout {
-    return buildWorkerFacilityLayout(this.builtRooms, this.homeBuiltSteps);
+    return this.buildLayout(this.builtRooms);
   }
 
   /** Current facility expansion state for late-joining clients. */
@@ -1211,6 +1658,7 @@ export class OrchestratorManager {
     totalHomeSteps: number;
     sharedGoals: string[];
     missionBoard: MissionBoardItem[];
+    society: FacilitySocietySnapshot;
   } {
     return {
       builtRooms: this.builtRooms,
@@ -1220,6 +1668,7 @@ export class OrchestratorManager {
       totalHomeSteps: HOME_BUILD_STEP_COUNT,
       sharedGoals: this.missionBoardGoals(),
       missionBoard: this.missionBoardItems(),
+      society: this.societySnapshot(),
     };
   }
 

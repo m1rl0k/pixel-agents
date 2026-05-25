@@ -8,6 +8,9 @@
 export const SPACETIME_WORKER_TASKS = [
   'break down the current user goal into scout, builder, reviewer, and verifier lanes',
   'identify the next smallest useful improvement and define acceptance criteria',
+  'pick a small code improvement in server or webview, implement it safely, and report verification',
+  'pick a visible facility-world improvement and specify the furniture, motion, or feedback it adds',
+  'inspect the command HUD, mission board, or live feed for one UI iteration to ship',
   'research the unknowns and report sources, assumptions, and confidence',
   'draft a plan that another worker can execute without hidden context',
   'review peer output for gaps, regressions, and missing validation',
@@ -18,6 +21,7 @@ export const SPACETIME_WORKER_TASKS = [
   'turn a broad request into concrete subtasks with owners and stop conditions',
   'verify whether the latest change satisfies the user goal',
   'generate test scenarios for the active task, including edge cases',
+  'run or define the next build/test check needed to keep the swarm green',
   'prepare a fallback path if the primary approach fails',
   'inspect logs or state for signals that change the plan',
   'convert a peer finding into an implementation-ready patch brief',

@@ -2,16 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   CLAUDE_STREAM_PROVIDER_ID,
+  CODEX_CLI_PROVIDER_ID,
   KIMI_WORKER_PROVIDER_ID,
   NVIDIA_NIM_DEEPSEEK_V4_PROVIDER_ID,
   NVIDIA_NIM_GLM_5_1_PROVIDER_ID,
   NVIDIA_NIM_KIMI_K2_6_PROVIDER_ID,
   NVIDIA_NIM_MINIMAX_M2_7_PROVIDER_ID,
-  WORKER_PROVIDER_ID,
 } from '../src/facilityConstants.js';
 import {
   buildFacilityWorkerRoster,
-  demoWorkersAllowed,
   pickOrchestratorProvider,
   pickWorkerProviderForRoom,
 } from '../src/facilityProviders.js';
@@ -26,7 +25,6 @@ const ENV_KEYS = [
   'PIXEL_AGENTS_CURSOR_WORKERS',
   'PIXEL_AGENTS_KIMI_WORKERS',
   'PIXEL_AGENTS_CODEX_WORKERS',
-  'PIXEL_AGENTS_DEMO',
 ] as const;
 
 const ORIGINAL = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
@@ -73,6 +71,12 @@ describe('facilityProviders', () => {
     ]);
   });
 
+  it('adds the Codex CLI lane when explicitly enabled', () => {
+    process.env.PIXEL_AGENTS_CODEX_WORKERS = '1';
+    const roster = buildFacilityWorkerRoster();
+    expect(roster.map((p) => p.providerId)).toEqual([CODEX_CLI_PROVIDER_ID]);
+  });
+
   it('prefers Claude for the orchestrator seat when claude-stream is in the roster', () => {
     process.env.PIXEL_AGENTS_CLAUDE_WORKERS = '1';
     process.env.KIMI_API_KEY = 'test';
@@ -82,16 +86,8 @@ describe('facilityProviders', () => {
     expect(pickWorkerProviderForRoom(0, roster).providerId).toBe(CLAUDE_STREAM_PROVIDER_ID);
   });
 
-  it('throws without demo when no real providers are configured', () => {
+  it('throws when no real providers are configured', () => {
     expect(() => pickWorkerProviderForRoom(0, [])).toThrow(/No real worker providers/);
     expect(() => pickOrchestratorProvider([])).toThrow(/No real providers for ORCHESTRATOR/);
-  });
-
-  it('allows demo lanes only when PIXEL_AGENTS_DEMO=1', () => {
-    expect(demoWorkersAllowed()).toBe(false);
-    process.env.PIXEL_AGENTS_DEMO = '1';
-    expect(demoWorkersAllowed()).toBe(true);
-    const lane = pickWorkerProviderForRoom(0, []);
-    expect(lane.providerId).toBe(WORKER_PROVIDER_ID);
   });
 });

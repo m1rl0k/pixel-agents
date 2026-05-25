@@ -7,7 +7,7 @@
  *  - Intentional stop → onWorkerFailed does NOT fire
  *  - handleWorkerProviderFailed: picks next lane and calls replaceProvider
  *  - Attempt cap: narrates max-failover when attempts exceed limit
- *  - All providers on cooldown → falls back to demo
+ *  - All providers on cooldown → retries a real lane
  *  - Provider cooldown registration
  */
 
@@ -30,9 +30,9 @@ vi.mock('../src/facilityProviders.js', () => ({
     { providerId: 'kimi-k2', laneLabel: 'kimi lane', capability: 'code' },
     { providerId: 'zai-glm-5.1-coding', laneLabel: 'z.ai lane', capability: 'code' },
   ]),
-  buildFacilityProviderStartupReport: vi.fn().mockReturnValue({ roster: [], usingDemo: true }),
+  buildFacilityProviderStartupReport: vi.fn().mockReturnValue({ roster: [] }),
   formatFacilityStartupMessage: vi.fn().mockReturnValue(''),
-  pickOrchestratorProvider: vi.fn().mockReturnValue({ providerId: 'demo', laneLabel: 'demo', capability: 'simulation' }),
+  pickOrchestratorProvider: vi.fn().mockReturnValue({ providerId: 'kimi-k2', laneLabel: 'kimi lane', capability: 'code' }),
   pickWorkerProviderForRoom: vi.fn().mockReturnValue({ providerId: 'kimi-k2', laneLabel: 'kimi lane', capability: 'code' }),
 }));
 
@@ -259,7 +259,7 @@ describe('OrchestratorManager – handleWorkerProviderFailed', () => {
     expect(cooldownAt).toBeGreaterThan(before + 290_000);
   });
 
-  it('all providers cooled down → falls back to demo', () => {
+  it('all providers cooled down → retries a real lane', () => {
     const orch = makeOrchestrator();
     (orch as unknown as { workerIds: number[] }).workerIds.push(10);
 
@@ -273,7 +273,7 @@ describe('OrchestratorManager – handleWorkerProviderFailed', () => {
     orch.handleWorkerProviderFailed(10, 'exit_error');
 
     const [, calledProvider] = mockManager.replaceProvider.mock.calls[0] as [number, string];
-    expect(calledProvider).toBe('demo');
+    expect(calledProvider).toBe('zai-glm-5.1-coding');
   });
 
   it('increments attempt counter per room', () => {
@@ -288,23 +288,10 @@ describe('OrchestratorManager – handleWorkerProviderFailed', () => {
     expect(attempts.get(0)).toBe(2);
   });
 
-  it('spawn() unknown provider → falls back to demo, no throw', async () => {
-    // Build a minimal SpawnedAgentManager with a registry that has demo but not 'kimi-cli'
+  it('spawn() unknown provider throws instead of using simulation fallback', async () => {
     const { SpawnedAgentManager } = await import('../src/spawnedAgentManager.js');
     const { ProviderRegistry } = await import('../src/providers/registry.js');
     const registry = new ProviderRegistry();
-
-    // Register a demo stream provider stub (ProcessRunner is mocked above so no real process)
-    const demoProvider = {
-      id: 'demo',
-      kind: 'stream' as const,
-      label: 'Demo',
-      parseStreamLine: vi.fn(),
-      buildLaunchCommand: vi.fn().mockReturnValue({ command: 'echo', args: ['-n', ''], env: undefined }),
-      buildInputMessage: vi.fn().mockReturnValue('hi'),
-      buildSystemPrompt: vi.fn().mockReturnValue(''),
-    };
-    registry.register(demoProvider as never);
 
     const emittedEvents: Array<Record<string, unknown>> = [];
     const mgr = new SpawnedAgentManager({
@@ -316,22 +303,16 @@ describe('OrchestratorManager – handleWorkerProviderFailed', () => {
       onAgentEvent: vi.fn(),
     });
 
-    // 'kimi-cli' is NOT registered — spawn must not throw, must fall back to demo
-    let returnedId: number | undefined;
     expect(() => {
-      returnedId = mgr.spawn({
+      mgr.spawn({
         providerId: 'kimi-cli',
         sessionId: 'test-session',
         cwd: '/tmp',
         sandbox: null,
         bypassPermissions: false,
       });
-    }).not.toThrow();
+    }).toThrow(/unknown provider "kimi-cli"/);
 
-    // spawn() falls back to demo: returns a valid id (not -1) and emits agentCreated with demo provider
-    expect(returnedId).toBeGreaterThanOrEqual(0);
-    const created = emittedEvents.find((e) => e.type === 'agentCreated');
-    expect(created).toBeDefined();
-    expect(created?.providerId).toBe('demo');
+    expect(emittedEvents.some((e) => e.type === 'agentCreated')).toBe(false);
   });
 });

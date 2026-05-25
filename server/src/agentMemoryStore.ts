@@ -74,10 +74,13 @@ export class AgentMemoryStore {
 
   /** HISTORY: read back recent records (most-recent-capped) for UI replay. */
   loadHistory(key: string, limit = HISTORY_REPLAY_CAP): HistoryRecord[] {
+    const normalizedLimit = normalizeHistoryReplayLimit(limit);
+    if (normalizedLimit === 0) return [];
+
     try {
       const raw = fs.readFileSync(this.keyPath(key, 'history.jsonl'), 'utf-8');
       const lines = raw.split('\n').filter(Boolean);
-      const tail = lines.slice(-limit);
+      const tail = lines.slice(-normalizedLimit);
       const out: HistoryRecord[] = [];
       for (const line of tail) {
         try {
@@ -149,6 +152,11 @@ export class AgentMemoryStore {
       /* best-effort */
     }
   }
+}
+
+function normalizeHistoryReplayLimit(limit: number): number {
+  if (!Number.isFinite(limit) || limit <= 0) return 0;
+  return Math.floor(limit);
 }
 
 /** Map an AgentEvent to a compact history record, or null to skip persisting it. */

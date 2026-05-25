@@ -1,5 +1,5 @@
 /**
- * Facility worker roster — real coding providers only unless PIXEL_AGENTS_DEMO=1.
+ * Facility worker roster — real coding providers only.
  */
 
 import {
@@ -13,7 +13,6 @@ import {
   NVIDIA_NIM_GLM_5_1_PROVIDER_ID,
   NVIDIA_NIM_KIMI_K2_6_PROVIDER_ID,
   NVIDIA_NIM_MINIMAX_M2_7_PROVIDER_ID,
-  WORKER_PROVIDER_ID,
   ZAI_GLM5_WORKER_PROVIDER_ID,
   ZAI_WORKER_PROVIDER_ID,
 } from './facilityConstants.js';
@@ -82,18 +81,7 @@ export function configuredZai5WorkerSlots(): number {
   return Math.min(2, new Set(values).size);
 }
 
-/** Token-free demo lanes — opt-in only (PIXEL_AGENTS_DEMO=1). */
-export function demoWorkersAllowed(): boolean {
-  return envEnabled('PIXEL_AGENTS_DEMO');
-}
-
-const DEMO_LANE: FacilityProviderLane = {
-  providerId: WORKER_PROVIDER_ID,
-  laneLabel: 'demo swarm lane',
-  capability: 'token-free simulation, handoffs, planning, and coordination',
-};
-
-/** Build the ordered roster of real worker providers (no demo). */
+/** Build the ordered roster of real worker providers. */
 export function buildFacilityWorkerRoster(): FacilityProviderLane[] {
   const roster: FacilityProviderLane[] = [];
 
@@ -188,13 +176,10 @@ export function pickWorkerProviderForRoom(
   roster: FacilityProviderLane[],
 ): FacilityProviderLane {
   if (roster.length === 0) {
-    if (!demoWorkersAllowed()) {
-      throw new Error(
-        'No real worker providers configured. Set KIMI_API_KEY / ZAI_GLM_*_CODING_API_KEY*, ' +
-          'install `claude` or `cursor-agent` on PATH, or set PIXEL_AGENTS_DEMO=1 for simulation.',
-      );
-    }
-    return DEMO_LANE;
+    throw new Error(
+      'No real worker providers configured. Set KIMI_API_KEY / NVIDIA_NIM_API_KEY / ' +
+        'ZAI_GLM_*_CODING_API_KEY*, or install `claude`, `kimi`, `codex`, or `cursor-agent` on PATH.',
+    );
   }
   return roster[roomIndex % roster.length];
 }
@@ -202,12 +187,9 @@ export function pickWorkerProviderForRoom(
 /** Orchestrator uses a real command lane (prefers Claude stream when available). */
 export function pickOrchestratorProvider(roster: FacilityProviderLane[]): FacilityProviderLane {
   if (roster.length === 0) {
-    if (!demoWorkersAllowed()) {
-      throw new Error(
-        'No real providers for ORCHESTRATOR. Configure API keys or CLIs (see startup log).',
-      );
-    }
-    return DEMO_LANE;
+    throw new Error(
+      'No real providers for ORCHESTRATOR. Configure API keys or CLIs (see startup log).',
+    );
   }
   const claude = roster.find((p) => p.providerId === CLAUDE_STREAM_PROVIDER_ID);
   return claude ?? roster[0];
@@ -215,7 +197,6 @@ export function pickOrchestratorProvider(roster: FacilityProviderLane[]): Facili
 
 export interface FacilityProviderStartupReport {
   roster: FacilityProviderLane[];
-  usingDemo: boolean;
   gated: string[];
 }
 
@@ -249,7 +230,6 @@ export function buildFacilityProviderStartupReport(): FacilityProviderStartupRep
 
   return {
     roster,
-    usingDemo: roster.length === 0 && demoWorkersAllowed(),
     gated,
   };
 }
@@ -259,13 +239,10 @@ export function formatFacilityStartupMessage(report: FacilityProviderStartupRepo
     const lanes = [...new Set(report.roster.map((p) => p.laneLabel))].join(', ');
     return `Real worker roster: ${lanes}`;
   }
-  if (report.usingDemo) {
-    return 'No real providers — PIXEL_AGENTS_DEMO=1 enables demo simulation lanes.';
-  }
   return (
     'No real worker providers. Add keys to .env or ~/.pixel-agents/config.json ' +
     '(KIMI_CODING_API_KEY or KIMI_API_KEY, NVIDIA_NIM_API_KEY, ' +
     'ZAI_GLM_5_1_CODING_API_KEY*, ZAI_GLM_5_CODING_API_KEY*), or install `claude`, ' +
-    '`kimi`, `codex`, or `cursor-agent`. Set PIXEL_AGENTS_DEMO=1 only for offline simulation.'
+    '`kimi`, `codex`, or `cursor-agent`.'
   );
 }

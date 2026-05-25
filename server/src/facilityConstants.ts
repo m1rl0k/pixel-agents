@@ -4,8 +4,8 @@ import { delimiter, join } from 'node:path';
 /** Gamified worker-facility dimensions (20 sandboxed worker rooms + orchestrator wing). */
 
 export const WORKER_ROOM_COUNT = 20;
-/** Default worker rooms for CLI / first-run demo: fill the full facility. */
-export const DEFAULT_DEMO_WORKERS = WORKER_ROOM_COUNT;
+/** Default worker rooms for CLI / first-run facility: fill the full facility. */
+export const DEFAULT_WORKERS = WORKER_ROOM_COUNT;
 export const ROOMS_PER_ROW = 5;
 export const ROOM_ROWS = 4;
 
@@ -35,7 +35,6 @@ export const HOME_WING_H = 10;
 /** Number of progressive home-build steps (shell + furniture groups). */
 export const HOME_BUILD_STEP_COUNT = 8;
 
-export const WORKER_PROVIDER_ID = 'demo';
 /** OMC-style owned Claude CLI (--input-format/--output-format stream-json). */
 export const CLAUDE_STREAM_PROVIDER_ID = 'claude-stream';
 /** Owned kimi CLI (--print --input-format stream-json --output-format stream-json). */
@@ -114,7 +113,7 @@ export function homeBuildIntervalMs(): number {
 
 /**
  * Self-maintenance enabled when `PIXEL_AGENTS_SELF_MAINTAIN` is set, or when
- * real (non-demo) providers are available and the flag is not explicitly disabled.
+ * real providers are available and the flag is not explicitly disabled.
  */
 export function selfMaintainEnabled(): boolean {
   const explicit = process.env.PIXEL_AGENTS_SELF_MAINTAIN;

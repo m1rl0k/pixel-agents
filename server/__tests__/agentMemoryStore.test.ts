@@ -28,6 +28,15 @@ describe('AgentMemoryStore', () => {
     expect(h[2].toolName).toBe('Bash');
   });
 
+  it('returns no history for invalid replay limits', () => {
+    store.record('sess-limited', { kind: 'message', role: 'assistant', text: 'first' });
+    store.record('sess-limited', { kind: 'message', role: 'assistant', text: 'second' });
+
+    expect(store.loadHistory('sess-limited', 0)).toEqual([]);
+    expect(store.loadHistory('sess-limited', -1)).toEqual([]);
+    expect(store.loadHistory('sess-limited', Number.NaN)).toEqual([]);
+  });
+
   it('skips non-substantive events', () => {
     store.record('sess-2', { kind: 'toolEnd', toolId: 't1' });
     store.record('sess-2', { kind: 'agentStatus' as never } as never);
@@ -46,7 +55,7 @@ describe('AgentMemoryStore', () => {
     store.record(
       'sess-1',
       { kind: 'message', role: 'user', text: 'hi' },
-      { label: 'Worker #1', providerId: 'demo' },
+      { label: 'Worker #1', providerId: 'codex-cli' },
     );
     store.record('sess-1', { kind: 'turnEnd' });
     const roster = store.roster();

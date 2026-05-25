@@ -81,4 +81,12 @@ describe('generateSelfMaintenanceTasks', () => {
     const tasks = generateSelfMaintenanceTasks('/repo', [], []);
     expect(tasks).toHaveLength(0);
   });
+
+  it('adds continuous improvement tasks only during real scans', () => {
+    const tasks = generateSelfMaintenanceTasks('/repo-that-does-not-exist');
+    expect(tasks.length).toBeGreaterThan(0);
+    expect(tasks.length).toBeLessThanOrEqual(MAX_SELF_MAINTENANCE_TASKS);
+    expect(tasks.some((task) => task.id === 'continuous-world-build-feedback')).toBe(true);
+    expect(tasks.every((task) => task.title.includes(SELF_MAINTAIN_PREFIX))).toBe(true);
+  });
 });

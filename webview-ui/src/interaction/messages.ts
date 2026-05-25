@@ -99,3 +99,37 @@ export type InteractionClientMessage =
 export function sendClient(message: InteractionClientMessage): void {
   transport.send(message);
 }
+
+// ── Agent Network: Library + Mail ────────────────────────────
+
+/** A book written by an agent and stored in the shared library. */
+export interface AgentBook {
+  /** Unique book id (uuid or slug). */
+  id: string;
+  /** Display name of the authoring agent. */
+  author: string;
+  /** Book title. */
+  title: string;
+  /** Topic tags. */
+  tags: string[];
+  /** Markdown body content. */
+  content: string;
+  /** Unix ms timestamp of when the book was written. */
+  ts: number;
+}
+
+/** A mail message sent from one agent to another. */
+export interface AgentMailItem {
+  /** Unique message id. */
+  id: string;
+  /** Sender agent display name or id. */
+  from: string;
+  /** Recipient agent display name or id ('broadcast' for all). */
+  to: string;
+  /** One-line subject. */
+  subject: string;
+  /** Markdown body. */
+  body: string;
+  /** Unix ms timestamp. */
+  ts: number;
+}

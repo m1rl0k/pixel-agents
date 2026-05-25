@@ -4,6 +4,11 @@ import { spawn } from 'child_process';
 /** Grace period (ms) between SIGTERM and SIGKILL in stop(). */
 const KILL_GRACE_MS = 5000;
 
+function isClosedStdinError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
+}
+
 export interface SpawnOptions {
   command: string;
   args: string[];
@@ -39,6 +44,7 @@ export class ProcessRunner implements RunnerHandle {
   private _child: ChildProcess | null = null;
   private _running = false;
   private _killTimer: ReturnType<typeof setTimeout> | null = null;
+  private _onError: ((err: Error) => void) | undefined;
 
   /** Start the process. Throws if already running. */
   start(opts: SpawnOptions, events: RunnerEvents): void {
@@ -54,6 +60,7 @@ export class ProcessRunner implements RunnerHandle {
 
     this._child = child;
     this._running = true;
+    this._onError = events.onError;
 
     // Per-stream partial-line buffers — mirrors fileWatcher.ts lineBuffer approach.
     let stdoutBuf = '';
@@ -91,9 +98,18 @@ export class ProcessRunner implements RunnerHandle {
       }
     });
 
+    child.stdin!.on('error', (err: Error) => {
+      if (isClosedStdinError(err)) {
+        this._running = false;
+        return;
+      }
+      events.onError?.(err);
+    });
+
     child.on('error', (err: Error) => {
       this._running = false;
       this._child = null;
+      this._onError = undefined;
       this._clearKillTimer();
       events.onError?.(err);
     });
@@ -101,6 +117,7 @@ export class ProcessRunner implements RunnerHandle {
     child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
       this._running = false;
       this._child = null;
+      this._onError = undefined;
       this._clearKillTimer();
       events.onExit?.(code, signal);
     });
@@ -113,8 +130,28 @@ export class ProcessRunner implements RunnerHandle {
    */
   writeStdin(data: string): void {
     if (!this._child || !this._running) return;
+    const stdin = this._child.stdin;
+    if (!stdin || stdin.destroyed || !stdin.writable) {
+      this._running = false;
+      return;
+    }
     const payload = data.endsWith('\n') ? data : data + '\n';
-    this._child.stdin!.write(payload);
+    try {
+      stdin.write(payload, (err) => {
+        if (!err) return;
+        if (isClosedStdinError(err)) {
+          this._running = false;
+          return;
+        }
+        this._onError?.(err);
+      });
+    } catch (err) {
+      if (isClosedStdinError(err)) {
+        this._running = false;
+        return;
+      }
+      this._onError?.(err as Error);
+    }
   }
 
   /** Send SIGINT to the child (Ctrl-C). No-op if not running. */

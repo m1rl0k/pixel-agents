@@ -241,15 +241,43 @@ export const MISSIONS_TITLE = 'View live mission board and task tree';
 export const MISSIONS_HEADER = 'Mission Board';
 export const MISSIONS_TASKS_SUFFIX = 'tasks';
 export const MISSION_BOARD_WIDTH_PX = 300;
-export const MISSION_BOARD_MAX_HEIGHT_PX = 420;
+export const MISSION_BOARD_MAX_HEIGHT_PX = 460;
 export const MISSION_BOARD_BOTTOM_PX = 68;
 export const MISSION_BOARD_LEFT_PX = 310;
+/** Prefix that marks a self-maintenance task dispatched by the facility loop. */
+export const MISSION_BOARD_MAINTAIN_PREFIX = '[MAINTAIN]';
+/** Section heading for the senior-approval event log. */
+export const MISSION_BOARD_APPROVALS_HEADER = 'Peer approvals';
+/** Max recent senior-approval events shown in the board. */
+export const MISSION_BOARD_APPROVALS_MAX = 5;
 // ── Agent Roster Panel ────────────────────────────────────────
 export const ROSTER_LABEL = 'Roster';
 export const ROSTER_TITLE = 'View live agents, providers, and sandbox tiers';
 export const ROSTER_HEADER = 'Agents';
 export const ROSTER_LIVE_SUFFIX = 'live';
 export const ROSTER_EMPTY = 'No agents deployed.';
+
+// ── Library + Mail Panel ─────────────────────────────────────
+/** Toolbar label for the Library/Mail panel toggle. */
+export const LIBRARY_PANEL_LABEL = 'Library';
+/** Toolbar tooltip for the Library/Mail panel. */
+export const LIBRARY_PANEL_TITLE = 'Agent books, knowledge, and mail';
+/** Width of the Library/Mail panel drawer (px). */
+export const LIBRARY_PANEL_WIDTH_PX = 380;
+/** Tab label — books view. */
+export const LIBRARY_TAB_BOOKS = 'Books';
+/** Tab label — mail view. */
+export const LIBRARY_TAB_MAIL = 'Mail';
+/** Placeholder text for the book search input. */
+export const LIBRARY_SEARCH_PLACEHOLDER = 'Search books…';
+/** Empty state shown when no books exist. */
+export const LIBRARY_EMPTY = 'No books written yet.';
+/** Empty state shown when no mail exists. */
+export const LIBRARY_MAIL_EMPTY = 'No messages yet.';
+/** Back button label in the book reader. */
+export const LIBRARY_BOOK_BACK_LABEL = '← Back';
+/** Max mail items retained in the webview feed. */
+export const LIBRARY_MAIL_MAX_ITEMS = 100;
 
 // ── RPG Dialogue / AgentActivityFeed ────────────────────────
 /** Typewriter reveal speed for the latest assistant reply (chars/sec). */

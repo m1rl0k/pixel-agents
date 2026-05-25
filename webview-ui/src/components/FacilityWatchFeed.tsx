@@ -7,7 +7,7 @@ import {
   FACILITY_MISSION_BOARD_EMPTY,
   FACILITY_MISSION_BOARD_LABEL,
 } from '../constants.js';
-import type { MissionBoardItem } from './FacilityBanner.js';
+import type { FacilitySociety, MissionBoardItem } from './FacilityBanner.js';
 
 void React;
 
@@ -24,6 +24,7 @@ interface FacilityWatchFeedProps {
   items: FacilityFeedItem[];
   missionBoard?: MissionBoardItem[];
   sharedGoals?: string[];
+  society?: FacilitySociety;
   onSelectAgent: (agentId: number) => void;
 }
 
@@ -72,6 +73,7 @@ export function FacilityWatchFeed({
   items,
   missionBoard = [],
   sharedGoals = [],
+  society,
   onSelectAgent,
 }: FacilityWatchFeedProps) {
   const recentGoals = sharedGoals.slice(-3);
@@ -131,6 +133,28 @@ export function FacilityWatchFeed({
             </div>
           )}
         </div>
+
+        {society && (
+          <div className="facility-feed-goals shrink-0">
+            <div className="text-[11px] text-accent uppercase tracking-wide">{society.name}</div>
+            <div className="mt-2 flex flex-col gap-1 text-2xs text-text-muted">
+              {society.roles.slice(0, 3).map((role) => (
+                <div key={role.name} className="flex items-center gap-2">
+                  <span className="text-accent-bright shrink-0">{role.count}</span>
+                  <span className="truncate">{role.name}</span>
+                  <span className="ml-auto text-[10px] uppercase tracking-wide text-accent shrink-0">
+                    {role.mandate.split(' ').slice(0, 2).join(' ')}
+                  </span>
+                </div>
+              ))}
+              {society.commons.slice(0, 2).map((item) => (
+                <div key={item} className="truncate">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {items.length === 0 ? (
           <p className="facility-feed-empty text-2xs text-text-muted leading-relaxed">

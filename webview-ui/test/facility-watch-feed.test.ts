@@ -64,6 +64,37 @@ test('FacilityWatchFeed renders mission-board task statuses', () => {
   assert.doesNotMatch(html, /Fallback goal should not render/);
 });
 
+test('FacilityWatchFeed renders society roles and commons state', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(FacilityWatchFeed, {
+      items: [],
+      society: {
+        name: 'Pixel Agents Cooperative',
+        charter: ['No silent idle'],
+        roles: [
+          {
+            name: 'Council',
+            count: 1,
+            mandate: 'set mission order',
+          },
+          {
+            name: 'Worker rooms',
+            count: 20,
+            mandate: 'keep rooms productive',
+          },
+        ],
+        commons: ['20/20 rooms inhabited'],
+        rituals: ['Peer handoff before idle'],
+      },
+      onSelectAgent: () => undefined,
+    }),
+  );
+
+  assert.match(html, /Pixel Agents Cooperative/);
+  assert.match(html, /Council/);
+  assert.match(html, /20\/20 rooms inhabited/);
+});
+
 test('App passes shared goals into the facility signal deck', () => {
   const appSource = readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
 
@@ -72,6 +103,7 @@ test('App passes shared goals into the facility signal deck', () => {
     appSource,
     /<FacilityWatchFeed[\s\S]*missionBoard=\{facilityProgress\.missionBoard\}/,
   );
+  assert.match(appSource, /<FacilityWatchFeed[\s\S]*society=\{facilityProgress\.society\}/);
 });
 
 test('useExtensionMessages suppresses waiting sounds during facility social mode', () => {

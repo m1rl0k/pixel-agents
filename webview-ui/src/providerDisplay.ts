@@ -20,9 +20,12 @@ const PROVIDER_ID_LABELS: Readonly<Record<string, string>> = {
   'kimi-k2.6': 'Kimi K2.6',
   'kimi-cli': 'Kimi CLI',
   'codex-cli': 'Codex CLI',
+  'nvidia-nim-deepseek-v4': 'DeepSeek V4',
+  'nvidia-nim-minimax-m2-7': 'MiniMax M2.7',
+  'nvidia-nim-kimi-k2-6': 'Kimi K2.6',
+  'nvidia-nim-glm-5-1': 'GLM-5.1 NIM',
   'zai-glm-5.1-coding': 'GLM-5.1',
   'zai-glm-5-coding': 'GLM-5',
-  demo: 'Demo',
   cursor: 'Cursor',
   antigravity: 'Gemini',
 };

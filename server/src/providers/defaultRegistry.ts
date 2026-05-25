@@ -8,14 +8,19 @@
  */
 
 import { claudeStreamWorkersEnabled } from '../facilityConstants.js';
-import { cursorWorkersEnabled, demoWorkersAllowed, kimiCliEnabled } from '../facilityProviders.js';
+import {
+  codexCliEnabled,
+  cursorWorkersEnabled,
+  kimiCliEnabled,
+} from '../facilityProviders.js';
 import { antigravityProvider } from './file/antigravity/antigravity.js';
 import { codexProvider } from './file/codex/codex.js';
 import { claudeProvider } from './hook/claude/claude.js';
 import { ProviderRegistry } from './registry.js';
 import { claudeStreamProvider } from './stream/claude/claudeStream.js';
+import { codexCliProvider } from './stream/codex/codexCli.js';
 import { cursorProvider } from './stream/cursor/cursor.js';
-import { demoProvider } from './stream/demo/demo.js';
+import { customOpenAiProvider } from './stream/custom/customOpenAi.js';
 import { kimiProvider } from './stream/kimi/kimi.js';
 import { kimiCliProvider } from './stream/kimi/kimiCli.js';
 import { nvidiaNimProviders } from './stream/nvidia/nim.js';
@@ -32,6 +37,9 @@ export function createDefaultRegistry(): ProviderRegistry {
   }
   if (kimiCliEnabled()) {
     registry.register(kimiCliProvider); // stream (owned kimi CLI / stream-json)
+  }
+  if (codexCliEnabled()) {
+    registry.register(codexCliProvider); // stream (owned codex exec --json worker)
   }
   if (!kimiCliEnabled() && (process.env.KIMI_CODING_API_KEY || process.env.KIMI_API_KEY)) {
     registry.register(kimiProvider); // stream (server-owned Kimi Code HTTP worker)
@@ -55,11 +63,11 @@ export function createDefaultRegistry(): ProviderRegistry {
   ) {
     registry.register(zaiGlm5Provider); // stream (server-owned GLM-5 coding worker)
   }
+  if (process.env.PIXEL_AGENTS_CUSTOM_OPENAI_API_KEY && process.env.PIXEL_AGENTS_CUSTOM_OPENAI_BASE) {
+    registry.register(customOpenAiProvider); // stream (generic OpenAI-compatible worker)
+  }
   if (cursorWorkersEnabled()) {
     registry.register(cursorProvider);
-  }
-  if (demoWorkersAllowed()) {
-    registry.register(demoProvider);
   }
   return registry;
 }

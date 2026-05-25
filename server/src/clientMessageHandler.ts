@@ -377,6 +377,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
       totalHomeSteps: progress.totalHomeSteps,
       sharedGoals: progress.sharedGoals,
       missionBoard: progress.missionBoard,
+      society: progress.society,
     });
   } else {
     const savedLayout = readLayoutFromFile();
