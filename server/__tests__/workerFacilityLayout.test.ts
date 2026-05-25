@@ -45,6 +45,23 @@ describe('buildWorkerFacilityLayout', () => {
     expect(complete.furniture.some((f) => f.uid === 'home-cactus')).toBe(true);
   });
 
+  it('installs the datacenter rack columns and operator terminals at the datacenter step', () => {
+    const beforeDatacenter = buildWorkerFacilityLayout(2, 8);
+    expect(beforeDatacenter.furniture.some((f) => f.uid.startsWith('datacenter-'))).toBe(false);
+
+    const datacenter = buildWorkerFacilityLayout(2, 9);
+    const racks = datacenter.furniture.filter((f) => /^datacenter-rack-\d+$/.test(f.uid));
+    const terminals = datacenter.furniture.filter((f) => /^datacenter-pc-\d+$/.test(f.uid));
+    const operatorChairs = datacenter.furniture.filter((f) => /^datacenter-chair-\d+$/.test(f.uid));
+
+    expect(racks).toHaveLength(6);
+    expect(new Set(racks.map((f) => f.col)).size).toBe(2);
+    expect(terminals).toHaveLength(2);
+    expect(operatorChairs).toHaveLength(2);
+    expect(operatorChairs.every((f) => f.type === 'CUSHIONED_CHAIR_BACK')).toBe(true);
+    expect(datacenter.furniture.some((f) => f.uid === 'datacenter-screen')).toBe(true);
+  });
+
   it('caps room count at WORKER_ROOM_COUNT', () => {
     const layout = buildWorkerFacilityLayout(WORKER_ROOM_COUNT + 5);
     const roomChairs = layout.furniture.filter((f) => /^room-\d+-chair$/.test(f.uid));
