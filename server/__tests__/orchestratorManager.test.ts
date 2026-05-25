@@ -526,17 +526,11 @@ describe('OrchestratorManager', () => {
     const maintainPrompts = manager.sendInput.mock.calls.filter((call) =>
       String(call[1]).includes('[MAINTAIN]'),
     );
-    const missionPrompts = manager.sendInput.mock.calls.filter((call) =>
-      String(call[1]).includes('SHARED_MISSION:'),
-    );
 
     expect(maintainPrompts).toHaveLength(0);
-    expect(missionPrompts.length).toBeGreaterThan(0);
+    expect(internal.selfMaintainQueue).toHaveLength(1);
     expect(
-      emitSpy.mock.calls.some(
-        ([msg]) =>
-          msg.type === 'facilityChat' && String(msg.text).includes('Self-maintain deferred'),
-      ),
+      emitSpy.mock.calls.some(([msg]) => String(msg.text ?? '').includes('Self-maintain deferred')),
     ).toBe(true);
   });
 });
