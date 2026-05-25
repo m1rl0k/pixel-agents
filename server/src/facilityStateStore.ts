@@ -115,7 +115,7 @@ export class FacilityStateStore {
   ): void {
     this.builtRooms = normalizeCounter(builtRooms, this.totalRooms);
     this.homeSteps = normalizeCounter(homeSteps);
-    this.phase = phase;
+    this.phase = isFacilityPhase(phase) ? phase : 'building';
     this.tasksDispatched = normalizeCounter(tasksDispatched);
     this.save();
   }

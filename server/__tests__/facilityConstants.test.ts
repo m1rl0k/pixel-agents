@@ -40,6 +40,7 @@ describe('facilityConstants', () => {
   });
 
   it('scales build and dispatch intervals with the selected tempo', () => {
+    delete process.env.PIXEL_AGENTS_FAST_FACILITY;
     setFacilityTempo('fast');
     expect(roomBuildIntervalMs()).toBe(Math.round(ROOM_BUILD_INTERVAL_MS * 0.4));
     expect(dispatchIntervalMs()).toBe(Math.round(DISPATCH_INTERVAL_MS * 0.4));

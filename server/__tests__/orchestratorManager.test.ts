@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  DISPATCH_INTERVAL_MS,
+  dispatchIntervalMs,
   HOME_BUILD_INTERVAL_MS,
   HOME_BUILD_STEP_COUNT,
   KIMI_WORKER_PROVIDER_ID,
@@ -385,7 +385,7 @@ describe('OrchestratorManager', () => {
       String(call[1]).includes('SHARED_MISSION:'),
     ).length;
 
-    await vi.advanceTimersByTimeAsync(DISPATCH_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(dispatchIntervalMs());
     await flushExpansions();
 
     const primaryCallsAfter = manager.sendInput.mock.calls.filter((call) =>

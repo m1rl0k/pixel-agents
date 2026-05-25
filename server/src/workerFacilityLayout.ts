@@ -21,7 +21,24 @@ import {
   ROOMS_PER_ROW,
   WORKER_ROOM_COUNT,
 } from './facilityConstants.js';
+import { buildFacilityWorkerRoster, pickWorkerProviderForRoom } from './facilityProviders.js';
 import { allHomeBuildSteps } from './homeBuildPlan.js';
+import { getTierForProvider } from './omc/agentHierarchy.js';
+
+function getTierForRoom(roomIndex: number): number {
+  try {
+    const roster = buildFacilityWorkerRoster();
+    if (roster && roster.length > 0) {
+      const provider = pickWorkerProviderForRoom(roomIndex, roster);
+      if (provider) {
+        return getTierForProvider(provider.providerId);
+      }
+    }
+  } catch {
+    // Falls back to junior/demo tier when no real roster can be built
+  }
+  return 3;
+}
 
 /** Tile enum values matching webview TileType. */
 const WALL = 0;
@@ -157,21 +174,37 @@ function stampWalledRoom(
   originCol: number,
   originRow: number,
   floorColor: FloorColor,
+  tier: number,
 ): void {
   for (let r = 0; r < ROOM_CELL_H; r++) {
     for (let c = 0; c < ROOM_CELL_W; c++) {
       const gc = originCol + c;
       const gr = originRow + r;
       const onBorder = c === 0 || c === ROOM_CELL_W - 1 || r === 0 || r === ROOM_CELL_H - 1;
-      stampRect(
-        layout,
-        gc,
-        gr,
-        1,
-        1,
-        onBorder ? WALL : FLOOR_PATTERN,
-        onBorder ? null : floorColor,
-      );
+
+      if (onBorder) {
+        stampRect(layout, gc, gr, 1, 1, WALL, null);
+      } else {
+        const onInnerBorder = c === 1 || c === ROOM_CELL_W - 2 || r === 1 || r === ROOM_CELL_H - 2;
+
+        let pattern = FLOOR_PATTERN; // default pattern (7)
+        let color = floorColor;
+
+        if (onInnerBorder) {
+          // Framed carpet edge: darker hue and higher saturation
+          color = { ...floorColor, b: floorColor.b - 8, s: floorColor.s + 10 };
+        } else if (tier === 1) {
+          // Senior Room: Premium wood/tile pattern (Pattern 5)
+          pattern = 5;
+          color = { ...floorColor, b: floorColor.b + 5, s: floorColor.s - 5 };
+        } else if (tier === 2) {
+          // Mid Room: Clean wood/tile pattern (Pattern 1)
+          pattern = 1;
+          color = { ...floorColor, b: floorColor.b + 2 };
+        }
+
+        stampRect(layout, gc, gr, 1, 1, pattern, color);
+      }
     }
   }
 }
@@ -194,6 +227,7 @@ function addWorkerRoomFurniture(
   roomIndex: number,
   originCol: number,
   originRow: number,
+  tier: number,
 ): void {
   const meta = workerRoomMeta(roomIndex);
   const deskCol = originCol + 2;
@@ -201,12 +235,85 @@ function addWorkerRoomFurniture(
   const chairCol = originCol + 3;
   const chairRow = originRow + 4;
 
+  // 1. Desk & PC (standard)
   furniture.push(
     { uid: `room-${roomIndex + 1}-desk`, type: 'DESK_FRONT', col: deskCol, row: deskRow },
-    { uid: meta.chairUid, type: 'WOODEN_CHAIR_FRONT', col: chairCol, row: chairRow },
     { uid: `room-${roomIndex + 1}-pc`, type: 'PC_FRONT_OFF', col: deskCol, row: deskRow },
-    { uid: `room-${roomIndex + 1}-plant`, type: 'PLANT', col: originCol + 1, row: originRow + 1 },
   );
+
+  // 2. Chair: upgrade based on tier!
+  if (tier === 1) {
+    // Senior: Cushioned Executive Chair!
+    furniture.push({
+      uid: meta.chairUid,
+      type: 'CUSHIONED_CHAIR_FRONT',
+      col: chairCol,
+      row: chairRow,
+    });
+  } else {
+    // Mid/Junior: Wooden Chair
+    furniture.push({
+      uid: meta.chairUid,
+      type: 'WOODEN_CHAIR_FRONT',
+      col: chairCol,
+      row: chairRow,
+    });
+  }
+
+  // 3. Decorative plants, paintings, and storage based on tier!
+  if (tier === 1) {
+    // Senior Room: Premium Large Plant, Double Bookshelf, Wall Painting, and Bin!
+    furniture.push(
+      {
+        uid: `room-${roomIndex + 1}-bookshelf`,
+        type: 'DOUBLE_BOOKSHELF',
+        col: originCol + 1,
+        row: originRow + 1,
+      },
+      {
+        uid: `room-${roomIndex + 1}-painting`,
+        type: 'LARGE_PAINTING',
+        col: originCol + 3,
+        row: originRow + 1,
+      },
+      {
+        uid: `room-${roomIndex + 1}-large-plant`,
+        type: 'LARGE_PLANT',
+        col: originCol + 5,
+        row: originRow + 1,
+      },
+      { uid: `room-${roomIndex + 1}-bin`, type: 'BIN', col: originCol + 5, row: originRow + 4 },
+    );
+  } else if (tier === 2) {
+    // Mid Room: Whiteboard, Compact Bookshelf, Plant 2, and Bin!
+    furniture.push(
+      {
+        uid: `room-${roomIndex + 1}-whiteboard`,
+        type: 'WHITEBOARD',
+        col: originCol + 3,
+        row: originRow + 1,
+      },
+      {
+        uid: `room-${roomIndex + 1}-bookshelf`,
+        type: 'BOOKSHELF',
+        col: originCol + 1,
+        row: originRow + 1,
+      },
+      {
+        uid: `room-${roomIndex + 1}-plant`,
+        type: 'PLANT_2',
+        col: originCol + 5,
+        row: originRow + 1,
+      },
+      { uid: `room-${roomIndex + 1}-bin`, type: 'BIN', col: originCol + 5, row: originRow + 4 },
+    );
+  } else {
+    // Junior Room: Standard minimal layout
+    furniture.push(
+      { uid: `room-${roomIndex + 1}-plant`, type: 'PLANT', col: originCol + 1, row: originRow + 1 },
+      { uid: `room-${roomIndex + 1}-bin`, type: 'BIN', col: originCol + 5, row: originRow + 4 },
+    );
+  }
 }
 
 function addOrchestratorFurniture(furniture: PlacedFurniture[]): void {
@@ -214,8 +321,10 @@ function addOrchestratorFurniture(furniture: PlacedFurniture[]): void {
   const cy = ORCH_ORIGIN_ROW + Math.floor(ORCHESTRATOR_H / 2);
   furniture.push(
     { uid: 'orch-desk', type: 'DESK_FRONT', col: cx - 1, row: cy - 2 },
-    { uid: 'orch-chair', type: 'WOODEN_CHAIR_BACK', col: cx, row: cy },
+    { uid: 'orch-chair', type: 'CUSHIONED_CHAIR_BACK', col: cx, row: cy },
     { uid: 'orch-pc', type: 'PC_FRONT_OFF', col: cx - 1, row: cy - 2 },
+    { uid: 'orch-whiteboard-l', type: 'WHITEBOARD', col: cx - 4, row: ORCH_ORIGIN_ROW + 1 },
+    { uid: 'orch-whiteboard-r', type: 'WHITEBOARD', col: cx + 3, row: ORCH_ORIGIN_ROW + 1 },
     {
       uid: 'orch-bookshelf-l',
       type: 'DOUBLE_BOOKSHELF',
@@ -227,6 +336,36 @@ function addOrchestratorFurniture(furniture: PlacedFurniture[]): void {
       type: 'DOUBLE_BOOKSHELF',
       col: ORCH_ORIGIN_COL + ORCHESTRATOR_W - 3,
       row: ORCH_ORIGIN_ROW + 2,
+    },
+    {
+      uid: 'orch-painting-1',
+      type: 'LARGE_PAINTING',
+      col: ORCH_ORIGIN_COL + 4,
+      row: ORCH_ORIGIN_ROW + 1,
+    },
+    {
+      uid: 'orch-painting-2',
+      type: 'LARGE_PAINTING',
+      col: ORCH_ORIGIN_COL + ORCHESTRATOR_W - 6,
+      row: ORCH_ORIGIN_ROW + 1,
+    },
+    {
+      uid: 'orch-plant-l',
+      type: 'LARGE_PLANT',
+      col: ORCH_ORIGIN_COL + 1,
+      row: ORCH_ORIGIN_ROW + ORCHESTRATOR_H - 2,
+    },
+    {
+      uid: 'orch-plant-r',
+      type: 'LARGE_PLANT',
+      col: ORCH_ORIGIN_COL + ORCHESTRATOR_W - 2,
+      row: ORCH_ORIGIN_ROW + ORCHESTRATOR_H - 2,
+    },
+    {
+      uid: 'orch-bin',
+      type: 'BIN',
+      col: cx + 2,
+      row: cy - 1,
     },
   );
 }
@@ -273,7 +412,40 @@ function paintCorridors(layout: WorkerFacilityLayout): void {
 
 function paintOrchestratorChamber(layout: WorkerFacilityLayout): void {
   const floorColor = orchFloorColor();
-  stampWalledRoom(layout, ORCH_ORIGIN_COL, ORCH_ORIGIN_ROW, floorColor);
+
+  // Stamp walled room with gorgeous custom flooring: marble-style contrasting grid and a luxurious golden carpet!
+  for (let r = 0; r < ORCHESTRATOR_H; r++) {
+    for (let c = 0; c < ORCHESTRATOR_W; c++) {
+      const gc = ORCH_ORIGIN_COL + c;
+      const gr = ORCH_ORIGIN_ROW + r;
+      const onBorder = c === 0 || c === ORCHESTRATOR_W - 1 || r === 0 || r === ORCHESTRATOR_H - 1;
+
+      if (onBorder) {
+        stampRect(layout, gc, gr, 1, 1, WALL, null);
+      } else {
+        const onInnerBorder =
+          c === 1 || c === ORCHESTRATOR_W - 2 || r === 1 || r === ORCHESTRATOR_H - 2;
+
+        let pattern = 5; // Luxury marble tile pattern
+        let color = floorColor;
+
+        if (onInnerBorder) {
+          color = { ...floorColor, b: floorColor.b - 12, s: floorColor.s + 15 };
+        } else {
+          // Draw a luxurious contrasting golden carpet inside the Orchestrator chamber
+          const inCarpet = c >= 3 && c <= ORCHESTRATOR_W - 4 && r >= 3 && r <= ORCHESTRATOR_H - 3;
+          if (inCarpet) {
+            pattern = 2; // Luxurious woven carpet
+            color = { h: 45, s: 70, b: 12, c: 20 }; // Golden hue
+          }
+        }
+
+        stampRect(layout, gc, gr, 1, 1, pattern, color);
+      }
+    }
+  }
+
+  // Door
   stampRect(
     layout,
     ORCH_ORIGIN_COL + Math.floor(ORCHESTRATOR_W / 2),
@@ -378,9 +550,10 @@ export function buildWorkerFacilityLayout(
   for (let i = 0; i < count; i++) {
     const { col, row } = workerRoomOrigin(i);
     const floorColor = hueForRoom(i);
-    stampWalledRoom(layout, col, row, floorColor);
+    const tier = getTierForRoom(i);
+    stampWalledRoom(layout, col, row, floorColor, tier);
     openWorkerRoomDoor(layout, col, row, i, floorColor);
-    addWorkerRoomFurniture(layout.furniture, i, col, row);
+    addWorkerRoomFurniture(layout.furniture, i, col, row, tier);
   }
 
   if (count > 0) {

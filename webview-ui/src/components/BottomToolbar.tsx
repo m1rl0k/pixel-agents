@@ -28,6 +28,7 @@ interface BottomToolbarProps {
   libraryCount?: number;
   agentCount: number;
   providers: ProviderInfo[];
+  onOpenSpawnMenu?: () => void;
 }
 
 export function BottomToolbar({
@@ -44,6 +45,7 @@ export function BottomToolbar({
   libraryCount,
   agentCount,
   providers,
+  onOpenSpawnMenu,
 }: BottomToolbarProps) {
   const [isSpawnMenuOpen, setIsSpawnMenuOpen] = useState(false);
   const spawnMenuRef = useRef<HTMLDivElement>(null);
@@ -63,6 +65,11 @@ export function BottomToolbar({
   const handleSpawn = (providerId: string, sandboxTier: SandboxTier) => {
     setIsSpawnMenuOpen(false);
     sendClient({ type: 'spawnAgent', providerId, sandboxTier });
+  };
+
+  const handleToggleSpawnMenu = () => {
+    if (!isSpawnMenuOpen) onOpenSpawnMenu?.();
+    setIsSpawnMenuOpen((v) => !v);
   };
 
   return (
@@ -135,7 +142,7 @@ export function BottomToolbar({
           <SpawnMenu
             isOpen={isSpawnMenuOpen}
             providers={providers}
-            onToggle={() => setIsSpawnMenuOpen((v) => !v)}
+            onToggle={handleToggleSpawnMenu}
             onSpawn={handleSpawn}
             triggerClassName="bottom-toolbar-button"
           />

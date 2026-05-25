@@ -293,6 +293,16 @@
     font-size: 10px;
   }
 
+  .spawn-menu-portal {
+    position: fixed;
+    z-index: 80;
+  }
+
+  .spawn-menu-panel {
+    max-height: min(520px, calc(100vh - 96px));
+    overflow-y: auto;
+  }
+
   .swarm-command-shell {
     bottom: 28px;
     width: min(520px, calc(100vw - 500px));

@@ -3,10 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CONFIG_FILE_NAME, LAYOUT_FILE_DIR } from './constants.js';
-import {
-  type AutonomyLevel,
-  DEFAULT_AUTONOMY_LEVEL,
-} from './omc/permissionPolicy.js';
+import { type AutonomyLevel, DEFAULT_AUTONOMY_LEVEL } from './omc/permissionPolicy.js';
 
 export interface AdapterSettings {
   soundEnabled: boolean;
@@ -104,18 +101,28 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
   };
 }
 
+function parsePartialAdapterSettings(raw: unknown): Partial<AdapterSettings> {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Partial<AdapterSettings>;
+  const settings: Partial<AdapterSettings> = {};
+
+  if (typeof obj.soundEnabled === 'boolean') settings.soundEnabled = obj.soundEnabled;
+  if (typeof obj.lastSeenVersion === 'string') settings.lastSeenVersion = obj.lastSeenVersion;
+  if (typeof obj.alwaysShowLabels === 'boolean') settings.alwaysShowLabels = obj.alwaysShowLabels;
+  if (typeof obj.watchAllSessions === 'boolean') settings.watchAllSessions = obj.watchAllSessions;
+  if (typeof obj.hooksEnabled === 'boolean') settings.hooksEnabled = obj.hooksEnabled;
+  if (typeof obj.hooksInfoShown === 'boolean') settings.hooksInfoShown = obj.hooksInfoShown;
+
+  return settings;
+}
+
 function mergeLegacySettings(parsed: LegacyPixelAgentsConfig): AdapterSettings {
-  const standalone = parseAdapterSettings(parsed.standalone);
-  const legacyVs = parseAdapterSettings(parsed.vscode);
-  const defaults = { ...DEFAULT_ADAPTER_SETTINGS };
-  const merged = { ...defaults, ...legacyVs, ...standalone };
-  return merged;
+  const standalone = parsePartialAdapterSettings(parsed.standalone);
+  const legacyVs = parsePartialAdapterSettings(parsed.vscode);
+  return { ...DEFAULT_ADAPTER_SETTINGS, ...legacyVs, ...standalone };
 }
 
 function parseAutonomyLevel(raw: unknown): AutonomyLevel {
-  return raw === 'auto' || raw === 'safe' || raw === 'manual'
-    ? raw
-    : DEFAULT_AUTONOMY_LEVEL;
+  return raw === 'auto' || raw === 'safe' || raw === 'manual' ? raw : DEFAULT_AUTONOMY_LEVEL;
 }
 
 export function readConfig(): PixelAgentsConfig {
@@ -172,6 +179,7 @@ export function readConfig(): PixelAgentsConfig {
 
 /** Persist a single provider API key by name. */
 export function writeProviderKey(name: string, value: string): void {
+  if (!isAllowedProviderKey(name)) return;
   const cfg = readConfig();
   cfg.providerKeys = { ...(cfg.providerKeys ?? {}), [name]: value };
   writeConfig(cfg);

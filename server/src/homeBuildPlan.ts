@@ -38,7 +38,9 @@ const STEPS: HomeBuildStepDef[] = [
     apply: (f, ox, oy, _w) => {
       f.push(
         { uid: 'home-sofa', type: 'SOFA_FRONT', col: ox + 2, row: oy + 3 },
-        { uid: 'home-coffee-table', type: 'COFFEE_TABLE', col: ox + 3, row: oy + 4 },
+        { uid: 'home-sofa-extra', type: 'SOFA_FRONT', col: ox + 5, row: oy + 3 },
+        { uid: 'home-coffee-table', type: 'COFFEE_TABLE', col: ox + 4, row: oy + 4 },
+        { uid: 'home-lounge-painting', type: 'SMALL_PAINTING_2', col: ox + 3, row: oy + 1 },
       );
     },
   },
@@ -51,6 +53,7 @@ const STEPS: HomeBuildStepDef[] = [
       f.push(
         { uid: 'home-coffee', type: 'COFFEE', col: ox + w - 4, row: oy + 2 },
         { uid: 'home-snack-table', type: 'SMALL_TABLE_FRONT', col: ox + w - 3, row: oy + 3 },
+        { uid: 'home-kitchen-bin', type: 'BIN', col: ox + w - 2, row: oy + 3 },
       );
     },
   },
@@ -64,8 +67,8 @@ const STEPS: HomeBuildStepDef[] = [
       const cy = oy + Math.floor(HOME_WING_INTERIOR_H / 2);
       f.push(
         { uid: 'home-dining-table', type: 'TABLE_FRONT', col: cx, row: cy },
-        { uid: 'home-dining-chair-l', type: 'WOODEN_CHAIR_FRONT', col: cx - 1, row: cy + 1 },
-        { uid: 'home-dining-chair-r', type: 'WOODEN_CHAIR_FRONT', col: cx + 2, row: cy + 1 },
+        { uid: 'home-dining-chair-l', type: 'CUSHIONED_CHAIR_FRONT', col: cx - 1, row: cy + 1 },
+        { uid: 'home-dining-chair-r', type: 'CUSHIONED_CHAIR_FRONT', col: cx + 2, row: cy + 1 },
       );
     },
   },
@@ -78,6 +81,8 @@ const STEPS: HomeBuildStepDef[] = [
       f.push(
         { uid: 'home-shelf-l', type: 'DOUBLE_BOOKSHELF', col: ox + 2, row: oy + 1 },
         { uid: 'home-shelf-r', type: 'DOUBLE_BOOKSHELF', col: ox + w - 4, row: oy + 1 },
+        { uid: 'home-library-chair', type: 'CUSHIONED_CHAIR_FRONT', col: ox + 4, row: oy + 2 },
+        { uid: 'home-library-table', type: 'SMALL_TABLE_FRONT', col: ox + 5, row: oy + 2 },
       );
     },
   },
@@ -90,7 +95,7 @@ const STEPS: HomeBuildStepDef[] = [
       f.push({
         uid: 'home-whiteboard',
         type: 'WHITEBOARD',
-        col: ox + Math.floor(w / 2),
+        col: ox + Math.floor(w / 2) - 4,
         row: oy + 1,
       });
     },
@@ -110,10 +115,35 @@ const STEPS: HomeBuildStepDef[] = [
         },
         { uid: 'home-plant-r', type: 'PLANT', col: ox + w - 2, row: oy + HOME_WING_INTERIOR_H - 2 },
         {
+          uid: 'home-plant-extra',
+          type: 'PLANT_2',
+          col: ox + 2,
+          row: oy + HOME_WING_INTERIOR_H - 2,
+        },
+        { uid: 'home-plant-pot', type: 'POT', col: ox + w - 3, row: oy + HOME_WING_INTERIOR_H - 2 },
+        {
           uid: 'home-bench',
           type: 'WOODEN_BENCH',
           col: ox + Math.floor(w / 2) - 1,
           row: oy + HOME_WING_INTERIOR_H - 1,
+        },
+        {
+          uid: 'home-hanging-plant-l',
+          type: 'HANGING_PLANT',
+          col: ox + 8,
+          row: oy + 1,
+        },
+        {
+          uid: 'home-hanging-plant-r',
+          type: 'HANGING_PLANT',
+          col: ox + w - 9,
+          row: oy + 1,
+        },
+        {
+          uid: 'home-cushioned-bench',
+          type: 'CUSHIONED_BENCH',
+          col: ox + w - 3,
+          row: oy + 6,
         },
       );
     },
@@ -125,7 +155,7 @@ const STEPS: HomeBuildStepDef[] = [
     orchestratorChat: 'Final team: clock and welcome cactus. Our home is almost ready.',
     apply: (f, ox, oy, w) => {
       f.push(
-        { uid: 'home-clock', type: 'CLOCK', col: ox + Math.floor(w / 2), row: oy },
+        { uid: 'home-clock', type: 'CLOCK', col: ox + Math.floor(w / 2) - 2, row: oy },
         { uid: 'home-cactus', type: 'CACTUS', col: ox + w - 2, row: oy + HOME_WING_INTERIOR_H - 1 },
       );
     },

@@ -82,8 +82,28 @@ test('placeFacilityFurniture applies live edits without reseating active agents'
     before,
   );
   assert.equal(state.seats.get('chair-1')?.assigned, true);
-  assert.equal(state.getLayout().furniture.some((item) => item.uid === 'ops-plant'), true);
+  assert.equal(
+    state.getLayout().furniture.some((item) => item.uid === 'ops-plant'),
+    true,
+  );
   assert.equal(state.newFurnitureTimers.has('ops-plant'), true);
+});
+
+test('placeFacilityFurniture rejects overlaps and records a rejection timer', () => {
+  const state = new OfficeState(layout());
+  const beforeCount = state.getLayout().furniture.length;
+
+  const placed = state.placeFacilityFurniture({
+    uid: 'blocked-plant',
+    type: 'PLANT',
+    col: 2,
+    row: 2,
+  });
+
+  assert.equal(placed, false);
+  assert.equal(state.getLayout().furniture.length, beforeCount);
+  assert.equal(state.rejectedPlaceTimers.has('2,2'), true);
+  assert.equal(state.newFurnitureTimers.has('blocked-plant'), false);
 });
 
 test('active facility agents walk to build sites before typing there', () => {

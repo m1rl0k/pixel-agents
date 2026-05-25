@@ -143,6 +143,41 @@ function App() {
   const [isDebugMode, setIsDebugMode] = useState(false);
   const [alwaysShowOverlay, setAlwaysShowOverlay] = useState(false);
 
+  const handleCloseBottomPanels = useCallback(() => {
+    setIsSettingsOpen(false);
+    setIsRosterOpen(false);
+    setIsMissionsOpen(false);
+    setIsLibraryOpen(false);
+  }, []);
+
+  const handleToggleSettings = useCallback(() => {
+    setIsRosterOpen(false);
+    setIsMissionsOpen(false);
+    setIsLibraryOpen(false);
+    setIsSettingsOpen((v) => !v);
+  }, []);
+
+  const handleToggleRoster = useCallback(() => {
+    setIsSettingsOpen(false);
+    setIsMissionsOpen(false);
+    setIsLibraryOpen(false);
+    setIsRosterOpen((v) => !v);
+  }, []);
+
+  const handleToggleMissions = useCallback(() => {
+    setIsSettingsOpen(false);
+    setIsRosterOpen(false);
+    setIsLibraryOpen(false);
+    setIsMissionsOpen((v) => !v);
+  }, []);
+
+  const handleToggleLibrary = useCallback(() => {
+    setIsSettingsOpen(false);
+    setIsRosterOpen(false);
+    setIsMissionsOpen(false);
+    setIsLibraryOpen((v) => !v);
+  }, []);
+
   const currentMajorMinor = toMajorMinor(extensionVersion);
 
   const handleWhatsNewDismiss = useCallback(() => {
@@ -172,13 +207,10 @@ function App() {
     transport.send({ type: 'focusAgent', id });
   }, []);
 
-  const getAgentName = useCallback(
-    (id: number): string => {
-      const ch = getOfficeState().characters.get(id);
-      return ch?.folderName ?? `Worker #${id}`;
-    },
-    [],
-  );
+  const getAgentName = useCallback((id: number): string => {
+    const ch = getOfficeState().characters.get(id);
+    return ch?.folderName ?? `Worker #${id}`;
+  }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -547,16 +579,17 @@ function App() {
         isEditMode={editor.isEditMode}
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
-        onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+        onToggleSettings={handleToggleSettings}
         isRosterOpen={isRosterOpen}
-        onToggleRoster={() => setIsRosterOpen((v) => !v)}
+        onToggleRoster={handleToggleRoster}
         isMissionsOpen={isMissionsOpen}
-        onToggleMissions={() => setIsMissionsOpen((v) => !v)}
+        onToggleMissions={handleToggleMissions}
         isLibraryOpen={isLibraryOpen}
-        onToggleLibrary={() => setIsLibraryOpen((v) => !v)}
+        onToggleLibrary={handleToggleLibrary}
         libraryCount={agentBooks.length + agentMail.length + agentKnowledge.length}
         agentCount={agents.length}
         providers={providers}
+        onOpenSpawnMenu={handleCloseBottomPanels}
       />
 
       <VersionIndicator

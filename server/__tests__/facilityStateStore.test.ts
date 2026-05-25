@@ -70,6 +70,24 @@ describe('FacilityStateStore', () => {
     });
   });
 
+  it('falls back to building when restore receives an invalid runtime phase', () => {
+    const store = storeUsingPath(statePath);
+
+    store.restore(
+      2,
+      1,
+      'maintenance' as unknown as Parameters<FacilityStateStore['restore']>[2],
+      3,
+    );
+
+    expect(store.getSnapshot()).toMatchObject({
+      builtRooms: 2,
+      homeSteps: 1,
+      phase: 'building',
+      tasksDispatched: 3,
+    });
+  });
+
   it('clamps persisted built rooms to the configured room capacity', () => {
     fs.writeFileSync(
       statePath,

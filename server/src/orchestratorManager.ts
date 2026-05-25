@@ -11,6 +11,8 @@
  *   5. Then dispatch shared goals and peer relays
  */
 
+import { execFileSync } from 'node:child_process';
+
 import type { AgentEvent } from '../../core/src/provider.js';
 import { AgentMemoryStore } from './agentMemoryStore.js';
 import {
@@ -54,7 +56,7 @@ import {
 } from './selfMaintenanceTasks.js';
 import { pickSpacetimeTask } from './spacetimeTasks.js';
 import type { SpawnedAgentManager } from './spawnedAgentManager.js';
-import type { PlacedFurniture, WorkerFacilityLayout } from './workerFacilityLayout.js';
+import type { FloorColor, PlacedFurniture, WorkerFacilityLayout } from './workerFacilityLayout.js';
 import {
   buildWorkerFacilityLayout,
   HOME_ORIGIN_COL,
@@ -138,12 +140,22 @@ const SOCIETY_RITUALS = [
   'Commons upgrade after operating dispatch',
 ];
 
+interface TileChange {
+  col: number;
+  row: number;
+  w: number;
+  h: number;
+  tile: number;
+  color?: FloorColor | null;
+}
+
 interface OperatingWorldBuildPatch {
   id: string;
   label: string;
   type: string;
   col: number;
   row: number;
+  tileChanges?: TileChange[];
 }
 
 const OPERATING_WORLD_BUILD_PATCHES: readonly OperatingWorldBuildPatch[] = [
@@ -153,6 +165,16 @@ const OPERATING_WORLD_BUILD_PATCHES: readonly OperatingWorldBuildPatch[] = [
     type: 'WOODEN_BENCH',
     col: HOME_ORIGIN_COL + 7,
     row: HOME_ORIGIN_ROW + 7,
+    tileChanges: [
+      {
+        col: HOME_ORIGIN_COL + 6,
+        row: HOME_ORIGIN_ROW + 7,
+        w: 3,
+        h: 2,
+        tile: 1, // Cozy wood checker pattern
+        color: { h: 30, s: 45, b: 0, c: 5 },
+      },
+    ],
   },
   {
     id: 'build-plant',
@@ -167,6 +189,16 @@ const OPERATING_WORLD_BUILD_PATCHES: readonly OperatingWorldBuildPatch[] = [
     type: 'WHITEBOARD',
     col: HOME_ORIGIN_COL + 31,
     row: HOME_ORIGIN_ROW + 1,
+    tileChanges: [
+      {
+        col: HOME_ORIGIN_COL + 29,
+        row: HOME_ORIGIN_ROW + 1,
+        w: 5,
+        h: 3,
+        tile: 7, // Technical blue framing
+        color: { h: 210, s: 50, b: -5, c: 10 },
+      },
+    ],
   },
   {
     id: 'pairing-table',
@@ -202,6 +234,71 @@ const OPERATING_WORLD_BUILD_PATCHES: readonly OperatingWorldBuildPatch[] = [
     type: 'PLANT',
     col: HOME_ORIGIN_COL + HOME_WING_W - 18,
     row: HOME_ORIGIN_ROW + 7,
+  },
+  {
+    id: 'focus-zone-walls',
+    label: 'Focus nook partition wall constructed',
+    type: 'DOUBLE_BOOKSHELF',
+    col: HOME_ORIGIN_COL + 8,
+    row: HOME_ORIGIN_ROW + 2,
+    tileChanges: [
+      {
+        col: HOME_ORIGIN_COL + 9,
+        row: HOME_ORIGIN_ROW + 2,
+        w: 1,
+        h: 3,
+        tile: 0, // Solid partition wall!
+      },
+      {
+        col: HOME_ORIGIN_COL + 3,
+        row: HOME_ORIGIN_ROW + 2,
+        w: 6,
+        h: 3,
+        tile: 5, // Luxury white-marble focus tiles
+        color: { h: 180, s: 15, b: 15, c: 12 },
+      },
+    ],
+  },
+  {
+    id: 'focus-zone-chair',
+    label: 'Focus armchair placed in nook',
+    type: 'CUSHIONED_CHAIR_FRONT',
+    col: HOME_ORIGIN_COL + 5,
+    row: HOME_ORIGIN_ROW + 3,
+  },
+  {
+    id: 'cozy-snack-seating',
+    label: 'Cozy snack bench and checker tile laid',
+    type: 'CUSHIONED_BENCH',
+    col: HOME_ORIGIN_COL + HOME_WING_W - 9,
+    row: HOME_ORIGIN_ROW + 4,
+    tileChanges: [
+      {
+        col: HOME_ORIGIN_COL + HOME_WING_W - 10,
+        row: HOME_ORIGIN_ROW + 3,
+        w: 8,
+        h: 3,
+        tile: 1, // Coffee shop checkerwood flooring
+        color: { h: 35, s: 40, b: -2, c: 5 },
+      },
+    ],
+  },
+  {
+    id: 'cozy-garden-patio',
+    label: 'Garden patio tile and wooden bench installed',
+    type: 'WOODEN_BENCH',
+    col: HOME_ORIGIN_COL + 6,
+    row: HOME_ORIGIN_ROW + 11,
+    tileChanges: [
+      {
+        col: HOME_ORIGIN_COL + 5,
+        row: HOME_ORIGIN_ROW + 10,
+        w: 7,
+        h: 3,
+        tile: 7, // Soft garden stone patio tiles
+        color: { h: 120, s: 30, b: -5, c: 10 },
+      },
+    ],
   },
 ];
 
@@ -251,6 +348,8 @@ export class OrchestratorManager {
   private readonly operatingBuildPlacements: PlacedFurniture[] = [];
   private operatingBuildCursor = 0;
   private lastOperatingBuildAt = 0;
+  /** Worker credited for the in-flight operating-phase world-build patch. */
+  private pendingOperatingBuildWorkerId: number | null = null;
   /** Queue of self-maintenance tasks waiting to be dispatched. */
   private selfMaintainQueue: SelfMaintenanceTask[] = [];
   /** How many times dispatchToWorker() has been called — schedules self-maintenance slots. */
@@ -380,6 +479,27 @@ export class OrchestratorManager {
       );
       layout.furniture.push({ ...item });
     }
+
+    // Apply dynamic wall, floor, and color modifications constructed by the swarm!
+    for (const item of this.operatingBuildPlacements) {
+      const patchId = item.uid.replace('ops-', '');
+      const patch = OPERATING_WORLD_BUILD_PATCHES.find((p) => p.id === patchId);
+      if (patch && patch.tileChanges) {
+        for (const tc of patch.tileChanges) {
+          for (let r = tc.row; r < tc.row + tc.h; r++) {
+            for (let c = tc.col; c < tc.col + tc.w; c++) {
+              if (c < 0 || r < 0 || c >= layout.cols || r >= layout.rows) continue;
+              const idx = r * layout.cols + c;
+              layout.tiles[idx] = tc.tile;
+              if (tc.color !== undefined) {
+                layout.tileColors[idx] = tc.color;
+              }
+            }
+          }
+        }
+      }
+    }
+
     layout.layoutRevision += this.operatingBuildPlacements.length;
   }
 
@@ -471,9 +591,7 @@ export class OrchestratorManager {
       `- ${society.name}`,
       ...society.charter.map((law) => `- ${law}`),
       'Roles:',
-      ...society.roles
-        .slice(0, 6)
-        .map((role) => `- ${role.name} (${role.count}): ${role.mandate}`),
+      ...society.roles.slice(0, 6).map((role) => `- ${role.name} (${role.count}): ${role.mandate}`),
       'Commons:',
       ...society.commons.map((item) => `- ${item}`),
     ].join('\n');
@@ -666,6 +784,10 @@ export class OrchestratorManager {
           applyWorldEdit(partial, 'placeFurniture', [fi.type, fi.col, fi.row]);
         }
         this.onLayout(partial);
+        this.emit({
+          type: 'facilityWorldEdit',
+          item: { uid: item.uid, type: item.type, col: item.col, row: item.row },
+        });
         const builderLabel =
           this.manager.getDetails(builderId)?.folderName ?? `Worker #${builderId}`;
         this.facilityChat(
@@ -777,7 +899,9 @@ export class OrchestratorManager {
         console.warn(
           `[OrchestratorManager] Room ${roomIndex + 1}: provider "${lane.providerId}" failed to spawn — ${msg}`,
         );
-        this.narrate(`${roomLabel}: provider "${lane.providerId}" unavailable — trying next real lane`);
+        this.narrate(
+          `${roomLabel}: provider "${lane.providerId}" unavailable — trying next real lane`,
+        );
       }
     }
 
@@ -863,8 +987,7 @@ export class OrchestratorManager {
     mt: SelfMaintenanceTask,
   ): void {
     const title = `${SELF_MAINTAIN_PREFIX} ${mt.title.replace(SELF_MAINTAIN_PREFIX, '').trim()}`;
-    const taskNodeId =
-      this.taskTree.dispatchChild('swarm-root', workerId, title) ?? undefined;
+    const taskNodeId = this.taskTree.dispatchChild('swarm-root', workerId, title) ?? undefined;
     if (taskNodeId) {
       this.workerActiveTaskId.set(workerId, taskNodeId);
       this.workerHadToolsInTurn.delete(workerId);
@@ -908,19 +1031,28 @@ export class OrchestratorManager {
     });
   }
 
-  private maybeScheduleOperatingWorldBuild(workerId: number, roomIndex: number, task: string): void {
+  private maybeScheduleOperatingWorldBuild(
+    workerId: number,
+    roomIndex: number,
+    task: string,
+  ): void {
     if (!this.homeComplete || OPERATING_WORLD_BUILD_PATCHES.length === 0) return;
     const now = Date.now();
     if (now - this.lastOperatingBuildAt < OrchestratorManager.OPERATING_WORLD_BUILD_MIN_MS) {
       return;
     }
     this.lastOperatingBuildAt = now;
+    this.pendingOperatingBuildWorkerId = workerId;
 
     const patch =
-      OPERATING_WORLD_BUILD_PATCHES[this.operatingBuildCursor % OPERATING_WORLD_BUILD_PATCHES.length];
+      OPERATING_WORLD_BUILD_PATCHES[
+        this.operatingBuildCursor % OPERATING_WORLD_BUILD_PATCHES.length
+      ];
     this.operatingBuildCursor++;
     const peerStart = this.operatingBuildCursor % Math.max(1, this.workerIds.length);
-    const helper = this.workerIds.filter((id) => id !== workerId)[peerStart % Math.max(1, this.workerIds.length - 1)];
+    const helper = this.workerIds.filter((id) => id !== workerId)[
+      peerStart % Math.max(1, this.workerIds.length - 1)
+    ];
     const agentIds = helper === undefined ? [workerId] : [workerId, helper];
     const taskSnippet = task.replace(/\s+/g, ' ').slice(0, 64);
 
@@ -962,10 +1094,23 @@ export class OrchestratorManager {
     } else {
       this.operatingBuildPlacements.push(item);
     }
+
+    // Broadcast the full updated layout with new walls, floors, and colors immediately!
+    this.pushLayout(this.builtRooms);
+
     this.emit({
       type: 'facilityWorldEdit',
       item,
     });
+    const creditedWorker = this.pendingOperatingBuildWorkerId;
+    if (creditedWorker !== null) {
+      this.facilityChat(
+        creditedWorker,
+        `Placed ${patch.type} at (${patch.col}, ${patch.row}) — ${patch.label}`,
+        null,
+      );
+      this.pendingOperatingBuildWorkerId = null;
+    }
   }
 
   /** Ask another worker to meet in the corridor before merging work. */
@@ -1010,6 +1155,8 @@ export class OrchestratorManager {
         if (ev.text.includes(SELF_MAINTAIN_OK_MARKER)) {
           const after = ev.text.slice(ev.text.indexOf(SELF_MAINTAIN_OK_MARKER)).slice(0, 120);
           this.facilityChat(id, `OK ${after}`, this.orchestratorId);
+          // Automatically commit the agent's code contributions to git!
+          this.commitAgentChanges(id, after);
         } else if (ev.text.includes(SELF_MAINTAIN_FAIL_MARKER)) {
           const after = ev.text.slice(ev.text.indexOf(SELF_MAINTAIN_FAIL_MARKER)).slice(0, 120);
           this.facilityChat(id, `FAIL ${after}`, this.orchestratorId);
@@ -1058,6 +1205,48 @@ export class OrchestratorManager {
     this.relayWorkerFinding(id, snippet);
   }
 
+  /** Stage changes inside the project and commit them directly to Git using the worker's unique visual identity. */
+  private commitAgentChanges(workerId: number, outcomeText: string): void {
+    const workerIndex = this.workerIds.indexOf(workerId);
+    if (workerIndex < 0) return;
+    const label = workerRoomMeta(workerIndex).label;
+    const email = `worker-${workerIndex + 1}@pixel-agents.local`;
+    const cleanOutcome = outcomeText.replace(SELF_MAINTAIN_OK_MARKER, '').trim().slice(0, 80);
+    const commitMsg = `agent: [${label}] ${cleanOutcome}`;
+
+    try {
+      // 1. Stage changes inside server, core, and webview-ui
+      execFileSync('git', ['add', 'server', 'core', 'webview-ui'], {
+        cwd: this.cwd,
+        stdio: 'ignore',
+        timeout: 5000,
+      });
+
+      // 2. Check if there are actually staged files to commit
+      const status = execFileSync('git', ['status', '--porcelain'], {
+        cwd: this.cwd,
+        encoding: 'utf8',
+        timeout: 3000,
+      });
+
+      if (status.trim().length > 0) {
+        // 3. Commit with custom author
+        execFileSync('git', ['commit', '-m', commitMsg, `--author=${label} <${email}>`], {
+          cwd: this.cwd,
+          stdio: 'ignore',
+          timeout: 5000,
+        });
+        this.facilityChat(
+          workerId,
+          `Git Commit: Successfully committed code as ${label}!`,
+          this.orchestratorId,
+        );
+      }
+    } catch (err) {
+      console.warn(`[OrchestratorManager] Git commit failed for worker ${label}:`, err);
+    }
+  }
+
   private captureAgentNetworkOutput(fromId: number, text: string): void {
     const details = this.manager.getDetails(fromId);
     const roomIndex = this.workerIds.indexOf(fromId);
@@ -1090,8 +1279,7 @@ export class OrchestratorManager {
 
   private announceMailCapture(fromId: number, mail: AgentMail): void {
     const recipientId = this.workerIdForNetworkRecipient(mail.to);
-    const targetLabel =
-      recipientId === null ? mail.to : this.workerNetworkLabel(recipientId);
+    const targetLabel = recipientId === null ? mail.to : this.workerNetworkLabel(recipientId);
     const prefix = isBroadcastNetworkRecipient(mail.to)
       ? 'broadcast mail'
       : `mail -> ${targetLabel}`;
@@ -1283,7 +1471,8 @@ export class OrchestratorManager {
    */
   private pickNextProvider(roomIndex: number, failedProviderId: string): FacilityProviderLane {
     const now = Date.now();
-    const baseRoster = this.workerRoster.length > 0 ? this.workerRoster : buildFacilityWorkerRoster();
+    const baseRoster =
+      this.workerRoster.length > 0 ? this.workerRoster : buildFacilityWorkerRoster();
     const roster = baseRoster.filter(
       (lane) => (this.providerCooldowns.get(lane.providerId) ?? 0) < now,
     );
@@ -1291,9 +1480,7 @@ export class OrchestratorManager {
     const failedIdx = roster.findIndex((lane) => lane.providerId === failedProviderId);
     // Try lanes after the failed one first, then wrap around
     const candidates =
-      failedIdx === -1
-        ? roster
-        : [...roster.slice(failedIdx + 1), ...roster.slice(0, failedIdx)];
+      failedIdx === -1 ? roster : [...roster.slice(failedIdx + 1), ...roster.slice(0, failedIdx)];
 
     if (candidates.length > 0) {
       // Round-robin within available candidates using roomIndex
@@ -1466,8 +1653,7 @@ export class OrchestratorManager {
       this.narrate(
         `Stall detected on ${workerRoomMeta(Math.max(0, roomIndex)).label} — retry ${attempt}/${MAX_STALL_RETRIES}`,
       );
-      const backoffMs =
-        OrchestratorManager.STALL_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+      const backoffMs = OrchestratorManager.STALL_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
       const retryMsg = [
         'STALL_RETRY: Your last reply promised action but no tools ran.',
         'Run at least one concrete tool step now, or report a specific blocker.',
@@ -1655,9 +1841,7 @@ export class OrchestratorManager {
     const label = workerRoomMeta(Math.max(0, roomIndex)).label;
     if (node.stallRetryCount < MAX_STALL_RETRIES) {
       const attempt = this.taskTree.incrementStallRetry(taskId);
-      this.narrate(
-        `Wall-clock stall on ${label} — re-prompt ${attempt}/${MAX_STALL_RETRIES}`,
-      );
+      this.narrate(`Wall-clock stall on ${label} — re-prompt ${attempt}/${MAX_STALL_RETRIES}`);
       this.manager.sendInput(
         workerId,
         [
@@ -1702,18 +1886,31 @@ export class OrchestratorManager {
 
   /** Halt all facility timers (workers finish their active task but no new dispatches). */
   pause(): void {
-    if (this.buildTimer) { clearInterval(this.buildTimer); this.buildTimer = null; }
-    if (this.homeBuildTimer) { clearInterval(this.homeBuildTimer); this.homeBuildTimer = null; }
-    if (this.dispatchTimer) { clearInterval(this.dispatchTimer); this.dispatchTimer = null; }
+    if (this.buildTimer) {
+      clearInterval(this.buildTimer);
+      this.buildTimer = null;
+    }
+    if (this.homeBuildTimer) {
+      clearInterval(this.homeBuildTimer);
+      this.homeBuildTimer = null;
+    }
+    if (this.dispatchTimer) {
+      clearInterval(this.dispatchTimer);
+      this.dispatchTimer = null;
+    }
     this.narrate('Facility control: PAUSED. Workers will complete active tasks.');
   }
 
   /** Restart whichever timer is appropriate for the current facility phase. */
   resume(): void {
     if (!this.roomsComplete && !this.buildTimer) {
-      this.buildTimer = setInterval(() => { void this.expandNextRoom(); }, roomBuildIntervalMs());
+      this.buildTimer = setInterval(() => {
+        void this.expandNextRoom();
+      }, roomBuildIntervalMs());
     } else if (this.roomsComplete && !this.homeComplete && !this.homeBuildTimer) {
-      this.homeBuildTimer = setInterval(() => { void this.expandHomeStep(); }, homeBuildIntervalMs());
+      this.homeBuildTimer = setInterval(() => {
+        void this.expandHomeStep();
+      }, homeBuildIntervalMs());
     } else if (this.homeComplete && !this.dispatchTimer) {
       this.dispatchTimer = setInterval(() => this.dispatch(), dispatchIntervalMs());
     }
@@ -1722,7 +1919,9 @@ export class OrchestratorManager {
 
   /** Manually trigger the next room expansion (no-op when rooms are complete). */
   buildNextRoom(): void {
-    if (!this.roomsComplete) { void this.expandNextRoom(); }
+    if (!this.roomsComplete) {
+      void this.expandNextRoom();
+    }
   }
 
   /** Adjust dispatch / build cadence live. Restarts active timers at the new rate. */
@@ -1734,11 +1933,15 @@ export class OrchestratorManager {
     }
     if (this.buildTimer) {
       clearInterval(this.buildTimer);
-      this.buildTimer = setInterval(() => { void this.expandNextRoom(); }, roomBuildIntervalMs());
+      this.buildTimer = setInterval(() => {
+        void this.expandNextRoom();
+      }, roomBuildIntervalMs());
     }
     if (this.homeBuildTimer) {
       clearInterval(this.homeBuildTimer);
-      this.homeBuildTimer = setInterval(() => { void this.expandHomeStep(); }, homeBuildIntervalMs());
+      this.homeBuildTimer = setInterval(() => {
+        void this.expandHomeStep();
+      }, homeBuildIntervalMs());
     }
   }
 

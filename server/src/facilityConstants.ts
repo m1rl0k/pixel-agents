@@ -31,7 +31,7 @@ export const RELAY_MIN_MS = 4000;
 /** Corridor gap between worker grid and the shared home commons wing (tiles). */
 export const HOME_GAP = 1;
 /** Height of the collaborative home commons (tiles, wall-inclusive). */
-export const HOME_WING_H = 10;
+export const HOME_WING_H = 14;
 /** Number of progressive home-build steps (shell + furniture groups). */
 export const HOME_BUILD_STEP_COUNT = 8;
 

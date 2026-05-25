@@ -39,7 +39,6 @@ export interface SubagentCharacter {
   label: string;
 }
 
-
 export interface PendingApproval {
   requestId: number;
   agentId: number;
@@ -684,7 +683,9 @@ export function useExtensionMessages(
         os.clearPermissionBubble(id);
         setPendingApprovals((prev) => {
           const next = new Map(prev);
-          for (const [k, v] of next) { if (v.agentId === id) next.delete(k); }
+          for (const [k, v] of next) {
+            if (v.agentId === id) next.delete(k);
+          }
           return next;
         });
         // Also clear permission bubbles on all sub-agent characters of this parent
@@ -799,7 +800,11 @@ export function useExtensionMessages(
         if (msg.providerKeysSet && typeof msg.providerKeysSet === 'object') {
           setProviderKeysSet(msg.providerKeysSet as Record<string, boolean>);
         }
-        if (msg.autonomyLevel === 'auto' || msg.autonomyLevel === 'safe' || msg.autonomyLevel === 'manual') {
+        if (
+          msg.autonomyLevel === 'auto' ||
+          msg.autonomyLevel === 'safe' ||
+          msg.autonomyLevel === 'manual'
+        ) {
           setAutonomyLevel(msg.autonomyLevel);
         }
       } else if (msg.type === 'autonomyLevelSet') {
@@ -882,11 +887,23 @@ export function useExtensionMessages(
           typeof item.col === 'number' &&
           typeof item.row === 'number'
         ) {
-          os.placeFacilityFurniture(item);
-          onLayoutLoaded?.(os.getLayout());
+          const placed = os.placeFacilityFurniture(item);
+          if (placed) {
+            pushFacilityFeed(os, 0, `Placed ${item.type} at (${item.col}, ${item.row})`, 'chat');
+            onLayoutLoaded?.(os.getLayout());
+          } else {
+            pushFacilityFeed(
+              os,
+              0,
+              `Blocked ${item.type} — overlaps existing furniture at (${item.col}, ${item.row})`,
+              'chat',
+            );
+          }
         }
       } else if (msg.type === 'taskTree') {
-        setTaskTree((msg.nodes as import('../components/FacilityBanner.js').MissionBoardItem[]) ?? []);
+        setTaskTree(
+          (msg.nodes as import('../components/FacilityBanner.js').MissionBoardItem[]) ?? [],
+        );
       } else if (msg.type === 'bookWritten') {
         // A single new book was written — prepend to the library list.
         const book = msg.book as AgentBook;
@@ -903,7 +920,9 @@ export function useExtensionMessages(
         const mail = msg.mail as AgentMailItem;
         setAgentMail((prev) => {
           const next = [mail, ...prev];
-          return next.length > LIBRARY_MAIL_MAX_ITEMS ? next.slice(0, LIBRARY_MAIL_MAX_ITEMS) : next;
+          return next.length > LIBRARY_MAIL_MAX_ITEMS
+            ? next.slice(0, LIBRARY_MAIL_MAX_ITEMS)
+            : next;
         });
       } else if (msg.type === 'knowledgeUpdated') {
         setAgentKnowledge((msg.knowledge as AgentKnowledgeItem[]) ?? []);

@@ -16,6 +16,7 @@ import {
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../../constants.js';
+import { canPlaceFurniture } from '../editor/editorActions.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
@@ -63,6 +64,8 @@ export class OfficeState {
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map();
   private nextSubagentId = -1;
   newFurnitureTimers: Map<string, number> = new Map();
+  /** Brief flash timer for rejected placements (key: "col,row"). */
+  rejectedPlaceTimers: Map<string, number> = new Map();
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
@@ -162,7 +165,11 @@ export class OfficeState {
   }
 
   /** Apply a live facility furniture edit without reseating active characters. */
-  placeFacilityFurniture(item: PlacedFurniture): void {
+  placeFacilityFurniture(item: PlacedFurniture): boolean {
+    if (!canPlaceFurniture(this.layout, item.type, item.col, item.row, item.uid)) {
+      this.rejectedPlaceTimers.set(`${item.col},${item.row}`, 0.35);
+      return false;
+    }
     const furniture = this.layout.furniture.filter(
       (f) => f.uid !== item.uid && (f.col !== item.col || f.row !== item.row),
     );
@@ -178,6 +185,7 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(this.layout.furniture);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    return true;
   }
 
   private markOccupiedSeatsAssigned(): void {
@@ -916,6 +924,14 @@ export class OfficeState {
         this.newFurnitureTimers.delete(uid);
       } else {
         this.newFurnitureTimers.set(uid, next);
+      }
+    }
+    for (const [key, timer] of this.rejectedPlaceTimers.entries()) {
+      const next = timer - dt;
+      if (next <= 0) {
+        this.rejectedPlaceTimers.delete(key);
+      } else {
+        this.rejectedPlaceTimers.set(key, next);
       }
     }
 
