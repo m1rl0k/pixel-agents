@@ -33,7 +33,38 @@ export const HOME_GAP = 1;
 /** Height of the collaborative home commons (tiles, wall-inclusive). */
 export const HOME_WING_H = 14;
 /** Number of progressive home-build steps (shell + furniture groups). */
-export const HOME_BUILD_STEP_COUNT = 8;
+export const HOME_BUILD_STEP_COUNT = 12;
+
+// ── Left Wing, Right Wing, and Recreation Lounge parameters ──
+export const LEFT_WING_W = 8;
+export const RIGHT_WING_W = 8;
+export const WING_GAP = 1;
+export const REC_WING_H = 10;
+export const REC_GAP = 1;
+
+export const WORKER_GRID_START_COL = FACILITY_MARGIN + LEFT_WING_W + WING_GAP;
+export const WORKER_GRID_START_ROW = FACILITY_MARGIN + ORCHESTRATOR_H + GAP_AFTER_ORCHESTRATOR;
+export const ORCH_ORIGIN_COL = WORKER_GRID_START_COL;
+export const ORCH_ORIGIN_ROW = FACILITY_MARGIN;
+
+export const LEFT_ORIGIN_COL = FACILITY_MARGIN;
+export const LEFT_ORIGIN_ROW = WORKER_GRID_START_ROW;
+export const LEFT_WING_H = ROOM_ROWS * ROOM_CELL_H + (ROOM_ROWS - 1) * FACILITY_CORRIDOR_W;
+
+export const HOME_WING_W = ROOMS_PER_ROW * ROOM_CELL_W + (ROOMS_PER_ROW - 1) * FACILITY_CORRIDOR_W;
+export const HOME_ORIGIN_COL = WORKER_GRID_START_COL;
+export const HOME_ORIGIN_ROW =
+  WORKER_GRID_START_ROW +
+  ROOM_ROWS * ROOM_CELL_H +
+  (ROOM_ROWS - 1) * FACILITY_CORRIDOR_W +
+  HOME_GAP;
+
+export const RIGHT_ORIGIN_COL = WORKER_GRID_START_COL + HOME_WING_W + WING_GAP;
+export const RIGHT_ORIGIN_ROW = WORKER_GRID_START_ROW;
+export const RIGHT_WING_H = LEFT_WING_H;
+
+export const REC_ORIGIN_COL = WORKER_GRID_START_COL;
+export const REC_ORIGIN_ROW = HOME_ORIGIN_ROW + HOME_WING_H + REC_GAP;
 
 /** OMC-style owned Claude CLI (--input-format/--output-format stream-json). */
 export const CLAUDE_STREAM_PROVIDER_ID = 'claude-stream';

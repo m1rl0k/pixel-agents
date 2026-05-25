@@ -12,13 +12,33 @@ import {
   GAP_AFTER_ORCHESTRATOR,
   HOME_BUILD_STEP_COUNT,
   HOME_GAP,
+  HOME_ORIGIN_COL,
+  HOME_ORIGIN_ROW,
   HOME_WING_H,
+  HOME_WING_W,
+  LEFT_ORIGIN_COL,
+  LEFT_ORIGIN_ROW,
+  LEFT_WING_H,
+  LEFT_WING_W,
+  ORCH_ORIGIN_COL,
+  ORCH_ORIGIN_ROW,
   ORCHESTRATOR_H,
   ORCHESTRATOR_W,
+  REC_GAP,
+  REC_ORIGIN_COL,
+  REC_ORIGIN_ROW,
+  REC_WING_H,
+  RIGHT_ORIGIN_COL,
+  RIGHT_ORIGIN_ROW,
+  RIGHT_WING_H,
+  RIGHT_WING_W,
   ROOM_CELL_H,
   ROOM_CELL_W,
   ROOM_ROWS,
   ROOMS_PER_ROW,
+  WING_GAP,
+  WORKER_GRID_START_COL,
+  WORKER_GRID_START_ROW,
   WORKER_ROOM_COUNT,
 } from './facilityConstants.js';
 import { buildFacilityWorkerRoster, pickWorkerProviderForRoom } from './facilityProviders.js';
@@ -80,12 +100,13 @@ export interface WorkerRoomMeta {
 }
 
 export const FACILITY_COLS =
-  FACILITY_MARGIN * 2 + ROOMS_PER_ROW * ROOM_CELL_W + (ROOMS_PER_ROW - 1) * FACILITY_CORRIDOR_W;
-
-const WORKER_GRID_START_COL = FACILITY_MARGIN;
-const WORKER_GRID_START_ROW = FACILITY_MARGIN + ORCHESTRATOR_H + GAP_AFTER_ORCHESTRATOR;
-const ORCH_ORIGIN_COL = FACILITY_MARGIN;
-const ORCH_ORIGIN_ROW = FACILITY_MARGIN;
+  FACILITY_MARGIN * 2 +
+  LEFT_WING_W +
+  WING_GAP +
+  ROOMS_PER_ROW * ROOM_CELL_W +
+  (ROOMS_PER_ROW - 1) * FACILITY_CORRIDOR_W +
+  WING_GAP +
+  RIGHT_WING_W;
 
 export const FACILITY_ROWS =
   FACILITY_MARGIN * 2 +
@@ -94,16 +115,9 @@ export const FACILITY_ROWS =
   ROOM_ROWS * ROOM_CELL_H +
   (ROOM_ROWS - 1) * FACILITY_CORRIDOR_W +
   HOME_GAP +
-  HOME_WING_H;
-
-/** Shared home commons wing (below worker grid). */
-export const HOME_WING_W = ROOMS_PER_ROW * ROOM_CELL_W + (ROOMS_PER_ROW - 1) * FACILITY_CORRIDOR_W;
-export const HOME_ORIGIN_COL = WORKER_GRID_START_COL;
-export const HOME_ORIGIN_ROW =
-  WORKER_GRID_START_ROW +
-  ROOM_ROWS * ROOM_CELL_H +
-  (ROOM_ROWS - 1) * FACILITY_CORRIDOR_W +
-  HOME_GAP;
+  HOME_WING_H +
+  REC_GAP +
+  REC_WING_H;
 
 function idx(cols: number, col: number, row: number): number {
   return row * cols + col;
@@ -514,10 +528,141 @@ function paintHomeCommonsShell(layout: WorkerFacilityLayout): void {
   );
 }
 
+function paintLeftCourtyard(layout: WorkerFacilityLayout): void {
+  const grassColor = { h: 120, s: 20, b: -10, c: 5 }; // Soft yard green
+  for (let r = 0; r < LEFT_WING_H; r++) {
+    for (let c = 0; c < LEFT_WING_W; c++) {
+      const gc = LEFT_ORIGIN_COL + c;
+      const gr = LEFT_ORIGIN_ROW + r;
+      const onBorder = c === 0 || r === 0 || r === LEFT_WING_H - 1;
+      if (onBorder) {
+        stampRect(layout, gc, gr, 1, 1, WALL, null);
+      } else {
+        stampRect(layout, gc, gr, 1, 1, FLOOR_PATTERN, grassColor);
+      }
+    }
+  }
+
+  // Draw a shimmering blue water oasis pond in the middle of the courtyard!
+  const cx = LEFT_ORIGIN_COL + Math.floor(LEFT_WING_W / 2);
+  const cy = LEFT_ORIGIN_ROW + Math.floor(LEFT_WING_H / 2);
+  const waterColor = { h: 200, s: 65, b: 15, c: 20 };
+  stampRect(layout, cx - 1, cy - 2, 3, 5, 7, waterColor);
+
+  // Door connecting Left Courtyard to the Left vertical corridor
+  stampRect(
+    layout,
+    WORKER_GRID_START_COL - 2,
+    WORKER_GRID_START_ROW + 15,
+    1,
+    1,
+    FLOOR_PATTERN,
+    grassColor,
+  );
+}
+
+function paintRightDatacenter(layout: WorkerFacilityLayout): void {
+  const datacenterFloorColor = { h: 220, s: 12, b: -4, c: 5 }; // Tech gray
+  for (let r = 0; r < RIGHT_WING_H; r++) {
+    for (let c = 0; c < RIGHT_WING_W; c++) {
+      const gc = RIGHT_ORIGIN_COL + c;
+      const gr = RIGHT_ORIGIN_ROW + r;
+      const onBorder = c === RIGHT_WING_W - 1 || r === 0 || r === RIGHT_WING_H - 1;
+      if (onBorder) {
+        stampRect(layout, gc, gr, 1, 1, WALL, null);
+      } else {
+        stampRect(layout, gc, gr, 1, 1, 5, datacenterFloorColor);
+      }
+    }
+  }
+
+  // Door connecting Right Datacenter to the Right vertical corridor
+  stampRect(
+    layout,
+    WORKER_GRID_START_COL + HOME_WING_W + 1,
+    WORKER_GRID_START_ROW + 15,
+    1,
+    1,
+    FLOOR_PATTERN,
+    datacenterFloorColor,
+  );
+}
+
+function paintRecreationLounge(layout: WorkerFacilityLayout): void {
+  const recFloorColor = { h: 265, s: 25, b: -6, c: 5 }; // Cozy gaming purple HSL
+  for (let r = 0; r < REC_WING_H; r++) {
+    for (let c = 0; c < REC_WING_W; c++) {
+      const gc = REC_ORIGIN_COL + c;
+      const gr = REC_ORIGIN_ROW + r;
+      const onBorder = c === 0 || c === REC_WING_W - 1 || r === 0 || r === REC_WING_H - 1;
+      if (onBorder) {
+        stampRect(layout, gc, gr, 1, 1, WALL, null);
+      } else {
+        const inChecker = (c + r) % 2 === 0;
+        const color = inChecker
+          ? recFloorColor
+          : { ...recFloorColor, b: recFloorColor.b + 5, s: recFloorColor.s - 5 };
+        stampRect(layout, gc, gr, 1, 1, 1, color);
+      }
+    }
+  }
+
+  // Door connecting Recreation Lounge to its corridor
+  stampRect(
+    layout,
+    REC_ORIGIN_COL + Math.floor(REC_WING_W / 2),
+    REC_ORIGIN_ROW,
+    1,
+    1,
+    FLOOR_PATTERN,
+    recFloorColor,
+  );
+}
+
+function paintOuterVerticalCorridors(layout: WorkerFacilityLayout): void {
+  // Left gap corridor (column 10)
+  stampRect(
+    layout,
+    WORKER_GRID_START_COL - 1,
+    WORKER_GRID_START_ROW,
+    1,
+    LEFT_WING_H,
+    FLOOR_PATTERN,
+    corridorColor(),
+  );
+  // Right gap corridor (column 55)
+  stampRect(
+    layout,
+    WORKER_GRID_START_COL + HOME_WING_W,
+    WORKER_GRID_START_ROW,
+    1,
+    RIGHT_WING_H,
+    FLOOR_PATTERN,
+    corridorColor(),
+  );
+  // Bottom Recreation Lounge corridor (row 59)
+  stampRect(
+    layout,
+    REC_ORIGIN_COL,
+    REC_ORIGIN_ROW - REC_GAP,
+    REC_WING_W,
+    REC_GAP,
+    FLOOR_PATTERN,
+    corridorColor(),
+  );
+}
+
 function applyHomeBuildSteps(layout: WorkerFacilityLayout, homeBuildSteps: number): void {
   if (homeBuildSteps <= 0) return;
   paintHomeCommonsCorridor(layout);
   paintHomeCommonsShell(layout);
+
+  // Paint vertical side corridors and the shells for Left, Right, and Bottom wings!
+  paintOuterVerticalCorridors(layout);
+  paintLeftCourtyard(layout);
+  paintRightDatacenter(layout);
+  paintRecreationLounge(layout);
+
   const steps = allHomeBuildSteps();
   for (let i = 0; i < Math.min(homeBuildSteps, steps.length); i++) {
     steps[i].apply(layout.furniture, HOME_ORIGIN_COL, HOME_ORIGIN_ROW, HOME_WING_W);
