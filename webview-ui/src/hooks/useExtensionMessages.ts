@@ -5,10 +5,18 @@ import type { FacilityFeedItem } from '../components/FacilityWatchFeed.js';
 import {
   AGENT_ACTIVITY_LOG_CAP,
   FACILITY_FEED_MAX_ITEMS,
+  LIBRARY_MAIL_MAX_ITEMS,
   MISSION_BOARD_APPROVALS_MAX,
   SPAWN_ERROR_DEFAULT,
 } from '../constants.js';
-import type { ActivityItem, ProviderInfo, SandboxTier } from '../interaction/messages.js';
+import type {
+  ActivityItem,
+  AgentBook,
+  AgentKnowledgeItem,
+  AgentMailItem,
+  ProviderInfo,
+  SandboxTier,
+} from '../interaction/messages.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
@@ -113,6 +121,12 @@ export interface ExtensionMessageState {
   seniorApprovals: SeniorApprovalEvent[];
   /** Current permission autonomy level (auto/safe/manual). */
   autonomyLevel: 'auto' | 'safe' | 'manual';
+  /** Books in the shared agent library (from bookWritten / libraryUpdated). */
+  agentBooks: AgentBook[];
+  /** Network mail feed (from agentMail), newest first, capped at LIBRARY_MAIL_MAX_ITEMS. */
+  agentMail: AgentMailItem[];
+  /** Shared knowledge facts returned by knowledgeUpdated/searchKnowledge. */
+  agentKnowledge: AgentKnowledgeItem[];
 }
 
 /** Append an activity item to an agent's capped log, returning a new map. */
@@ -183,6 +197,10 @@ export function useExtensionMessages(
   const [taskTree, setTaskTree] = useState<MissionBoardItem[]>([]);
   const [seniorApprovals, setSeniorApprovals] = useState<SeniorApprovalEvent[]>([]);
   const [autonomyLevel, setAutonomyLevel] = useState<'auto' | 'safe' | 'manual'>('auto');
+  // ── Library + Mail state slice ────────────────────────────
+  const [agentBooks, setAgentBooks] = useState<AgentBook[]>([]);
+  const [agentMail, setAgentMail] = useState<AgentMailItem[]>([]);
+  const [agentKnowledge, setAgentKnowledge] = useState<AgentKnowledgeItem[]>([]);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -869,6 +887,26 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'taskTree') {
         setTaskTree((msg.nodes as import('../components/FacilityBanner.js').MissionBoardItem[]) ?? []);
+      } else if (msg.type === 'bookWritten') {
+        // A single new book was written — prepend to the library list.
+        const book = msg.book as AgentBook;
+        setAgentBooks((prev) => [book, ...prev]);
+      } else if (msg.type === 'libraryUpdated') {
+        // Full library snapshot (on reconnect or bulk update).
+        const books = (msg.books as AgentBook[]) ?? [];
+        setAgentBooks(books);
+      } else if (msg.type === 'agentMailSnapshot') {
+        const mail = (msg.mail as AgentMailItem[]) ?? [];
+        setAgentMail(mail.slice(0, LIBRARY_MAIL_MAX_ITEMS));
+      } else if (msg.type === 'agentMail') {
+        // New mail item — prepend, cap at LIBRARY_MAIL_MAX_ITEMS.
+        const mail = msg.mail as AgentMailItem;
+        setAgentMail((prev) => {
+          const next = [mail, ...prev];
+          return next.length > LIBRARY_MAIL_MAX_ITEMS ? next.slice(0, LIBRARY_MAIL_MAX_ITEMS) : next;
+        });
+      } else if (msg.type === 'knowledgeUpdated') {
+        setAgentKnowledge((msg.knowledge as AgentKnowledgeItem[]) ?? []);
       } else if (msg.type === 'facilityChat') {
         facilitySocialRef.current = true;
         const fromId = msg.fromId as number;
@@ -924,5 +962,8 @@ export function useExtensionMessages(
     taskTree,
     seniorApprovals,
     autonomyLevel,
+    agentBooks,
+    agentMail,
+    agentKnowledge,
   };
 }

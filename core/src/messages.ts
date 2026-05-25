@@ -30,6 +30,11 @@ export type ServerMessage =
   | FacilityBuild
   | FacilityWorldEdit
   | FacilityChat
+  | AgentMail
+  | AgentMailSnapshot
+  | BookWritten
+  | LibraryUpdated
+  | KnowledgeUpdated
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
   | FloorTilesLoaded
@@ -63,6 +68,7 @@ export type ClientMessage =
   | SpawnAgent
   | AgentInput
   | SwarmInput
+  | SearchKnowledge
   | AgentInterrupt
   | StopSpawnedAgent
   | PermissionReply;
@@ -260,6 +266,56 @@ export interface FacilityChat {
   text: string;
 }
 
+export interface AgentMail {
+  type: 'agentMail';
+  mail: AgentNetworkMail;
+}
+
+export interface AgentNetworkMail {
+  id: string;
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  ts: number;
+}
+
+export interface AgentMailSnapshot {
+  type: 'agentMailSnapshot';
+  mail: AgentNetworkMail[];
+}
+
+export interface BookWritten {
+  type: 'bookWritten';
+  book: AgentNetworkBook;
+}
+
+export interface AgentNetworkBook {
+  id: string;
+  author: string;
+  title: string;
+  tags: string[];
+  content: string;
+  ts: number;
+}
+
+export interface LibraryUpdated {
+  type: 'libraryUpdated';
+  books: AgentNetworkBook[];
+}
+
+export interface KnowledgeUpdated {
+  type: 'knowledgeUpdated';
+  knowledge: AgentNetworkKnowledge[];
+}
+
+export interface AgentNetworkKnowledge {
+  id: string;
+  author: string;
+  body: string;
+  ts: number;
+}
+
 export interface FurnitureAssetsLoaded {
   type: 'furnitureAssetsLoaded';
   catalog: FurnitureAssetMessage[];
@@ -345,32 +401,32 @@ export interface AgentDiagnostics {
 export interface AgentActivity {
   type: 'agentActivity';
   id: number;
-  kind: AnonymousSchema_192;
-  role?: AnonymousSchema_193;
+  kind: AnonymousSchema_217;
+  role?: AnonymousSchema_218;
   text: string;
   approved?: boolean;
   requestingAgentId?: number;
   reason?: string;
 }
 
-export type AnonymousSchema_192 = 'message' | 'reasoning' | 'tool' | 'seniorApproval';
+export type AnonymousSchema_217 = 'message' | 'reasoning' | 'tool' | 'seniorApproval';
 
-export type AnonymousSchema_193 = 'user' | 'assistant';
+export type AnonymousSchema_218 = 'user' | 'assistant';
 
 export interface ProviderList {
   type: 'providerList';
-  providers: AnonymousSchema_200[];
+  providers: AnonymousSchema_225[];
 }
 
-export interface AnonymousSchema_200 {
+export interface AnonymousSchema_225 {
   id: string;
   displayName: string;
-  kind: AnonymousSchema_203;
+  kind: AnonymousSchema_228;
   readingTools: string[];
   subagentToolNames: string[];
 }
 
-export type AnonymousSchema_203 = 'hook' | 'file' | 'stream';
+export type AnonymousSchema_228 = 'hook' | 'file' | 'stream';
 
 export interface WebviewReady {
   type: 'webviewReady';
@@ -465,12 +521,12 @@ export interface RequestDiagnostics {
 export interface SpawnAgent {
   type: 'spawnAgent';
   providerId: string;
-  sandboxTier?: AnonymousSchema_243;
+  sandboxTier?: AnonymousSchema_268;
   cwd?: string;
   bypassPermissions?: boolean;
 }
 
-export type AnonymousSchema_243 = 'none' | 'container';
+export type AnonymousSchema_268 = 'none' | 'container';
 
 export interface AgentInput {
   type: 'agentInput';
@@ -481,6 +537,11 @@ export interface AgentInput {
 export interface SwarmInput {
   type: 'swarmInput';
   text: string;
+}
+
+export interface SearchKnowledge {
+  type: 'searchKnowledge';
+  query: string;
 }
 
 export interface AgentInterrupt {

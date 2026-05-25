@@ -85,6 +85,31 @@ export interface OrchestratorStartOptions {
 
 type WorkerProviderAssignment = FacilityProviderLane;
 
+interface AgentNetworkUiBook {
+  id: string;
+  author: string;
+  title: string;
+  tags: string[];
+  content: string;
+  ts: number;
+}
+
+interface AgentNetworkUiMail {
+  id: string;
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  ts: number;
+}
+
+interface AgentNetworkUiKnowledge {
+  id: string;
+  author: string;
+  body: string;
+  ts: number;
+}
+
 interface FacilitySocietyRole {
   name: string;
   count: number;
@@ -1050,10 +1075,14 @@ export class OrchestratorManager {
   private announceNetworkCaptures(fromId: number, captures: NetworkCapture[]): void {
     for (const capture of captures) {
       if (capture.kind === 'mail') {
+        this.emit({ type: 'agentMail', mail: this.networkMailForUi(capture.mail) });
         this.announceMailCapture(fromId, capture.mail);
       } else if (capture.kind === 'book') {
+        this.emit({ type: 'bookWritten', book: this.networkBookForUi(capture.book) });
+        this.emit({ type: 'libraryUpdated', books: this.networkBooksForUi() });
         this.facilityChat(fromId, `library: ${capture.book.title}`, null);
       } else {
+        this.emit({ type: 'knowledgeUpdated', knowledge: this.networkKnowledgeForUi('') });
         this.facilityChat(fromId, `knowledge: ${capture.knowledge.body.slice(0, 64)}`, null);
       }
     }
@@ -1117,6 +1146,75 @@ export class OrchestratorManager {
 
   private networkLookupKey(value: string): string {
     return normalizeNetworkRecipient(value).replace(/[^a-z0-9._-]/g, '');
+  }
+
+  getNetworkSnapshot(): {
+    mail: AgentNetworkUiMail[];
+    books: AgentNetworkUiBook[];
+    knowledge: AgentNetworkUiKnowledge[];
+  } {
+    return {
+      mail: this.agentNetwork.listMail(100).map((mail) => this.networkMailForUi(mail)),
+      books: this.networkBooksForUi(),
+      knowledge: this.networkKnowledgeForUi(''),
+    };
+  }
+
+  searchNetworkKnowledge(query: string): AgentNetworkUiKnowledge[] {
+    return this.networkKnowledgeForUi(query);
+  }
+
+  private networkBooksForUi(limit = 100): AgentNetworkUiBook[] {
+    return this.agentNetwork.listBooks(limit).map((book) => this.networkBookForUi(book));
+  }
+
+  private networkKnowledgeForUi(query: string, limit = 100): AgentNetworkUiKnowledge[] {
+    return this.agentNetwork
+      .searchKnowledge(query, limit)
+      .map((knowledge) => this.networkKnowledgeItemForUi(knowledge));
+  }
+
+  private networkMailForUi(mail: AgentMail): AgentNetworkUiMail {
+    return {
+      id: mail.id,
+      from: mail.from,
+      to: mail.to,
+      subject: mail.subject,
+      body: mail.body,
+      ts: Date.parse(mail.createdAt) || Date.now(),
+    };
+  }
+
+  private networkBookForUi(book: {
+    id: string;
+    author: string;
+    title: string;
+    tags: string[];
+    body: string;
+    createdAt: string;
+  }): AgentNetworkUiBook {
+    return {
+      id: book.id,
+      author: book.author,
+      title: book.title,
+      tags: book.tags,
+      content: book.body,
+      ts: Date.parse(book.createdAt) || Date.now(),
+    };
+  }
+
+  private networkKnowledgeItemForUi(knowledge: {
+    id: string;
+    author: string;
+    body: string;
+    createdAt: string;
+  }): AgentNetworkUiKnowledge {
+    return {
+      id: knowledge.id,
+      author: knowledge.author,
+      body: knowledge.body,
+      ts: Date.parse(knowledge.createdAt) || Date.now(),
+    };
   }
 
   /**

@@ -10,6 +10,7 @@ import { CommandBar } from './components/CommandBar.js';
 import { DebugView } from './components/DebugView.js';
 import { EditActionBar } from './components/EditActionBar.js';
 import { FacilityWatchFeed } from './components/FacilityWatchFeed.js';
+import { LibraryMailPanel } from './components/LibraryMailPanel.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
 import { MissionBoard } from './components/MissionBoard.js';
 import { SettingsModal } from './components/SettingsModal.js';
@@ -94,6 +95,9 @@ function App() {
     taskTree,
     seniorApprovals,
     autonomyLevel,
+    agentBooks,
+    agentMail,
+    agentKnowledge,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   const [facilityWatchMode, setFacilityWatchMode] = useState(true);
@@ -133,6 +137,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRosterOpen, setIsRosterOpen] = useState(false);
   const [isMissionsOpen, setIsMissionsOpen] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -239,6 +244,10 @@ function App() {
 
   const handleSetAutonomyLevel = useCallback((level: 'auto' | 'safe' | 'manual') => {
     transport.send({ type: 'setAutonomyLevel', level });
+  }, []);
+
+  const handleSearchKnowledge = useCallback((query: string) => {
+    transport.send({ type: 'searchKnowledge', query });
   }, []);
 
   const handleClosePanel = useCallback(() => {
@@ -524,6 +533,16 @@ function App() {
         />
       )}
 
+      {isLibraryOpen && (
+        <LibraryMailPanel
+          books={agentBooks}
+          mail={agentMail}
+          knowledge={agentKnowledge}
+          onClose={() => setIsLibraryOpen(false)}
+          onSearchKnowledge={handleSearchKnowledge}
+        />
+      )}
+
       <BottomToolbar
         isEditMode={editor.isEditMode}
         onToggleEditMode={editor.handleToggleEditMode}
@@ -533,6 +552,9 @@ function App() {
         onToggleRoster={() => setIsRosterOpen((v) => !v)}
         isMissionsOpen={isMissionsOpen}
         onToggleMissions={() => setIsMissionsOpen((v) => !v)}
+        isLibraryOpen={isLibraryOpen}
+        onToggleLibrary={() => setIsLibraryOpen((v) => !v)}
+        libraryCount={agentBooks.length + agentMail.length + agentKnowledge.length}
         agentCount={agents.length}
         providers={providers}
       />

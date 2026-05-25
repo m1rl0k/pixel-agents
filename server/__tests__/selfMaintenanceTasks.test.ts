@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   generateSelfMaintenanceTasks,
   MAX_SELF_MAINTENANCE_TASKS,
+  parseTodoSignalLine,
   SELF_MAINTAIN_FAIL_MARKER,
   SELF_MAINTAIN_OK_MARKER,
   SELF_MAINTAIN_PREFIX,
@@ -15,6 +16,46 @@ const todoSignals = [
   { file: 'core/src/bar.ts', line: '7', kind: 'FIXME', comment: 'race condition on shutdown' },
 ];
 const untestedModules = ['agentMemoryStore', 'spacetimeTasks'];
+
+describe('parseTodoSignalLine', () => {
+  it('accepts real comment markers', () => {
+    expect(
+      parseTodoSignalLine('/repo/server/src/foo.ts:42:  // TODO: handle error case here', '/repo'),
+    ).toEqual({
+      file: 'server/src/foo.ts',
+      line: '42',
+      kind: 'TODO',
+      comment: 'handle error case here',
+    });
+
+    expect(
+      parseTodoSignalLine(
+        '/repo/webview-ui/src/App.tsx:7:const ok = true; // FIXME race condition on shutdown',
+        '/repo',
+      ),
+    ).toEqual({
+      file: 'webview-ui/src/App.tsx',
+      line: '7',
+      kind: 'FIXME',
+      comment: 'race condition on shutdown',
+    });
+  });
+
+  it('ignores prose and strings that merely mention TODO/FIXME', () => {
+    expect(
+      parseTodoSignalLine(
+        '/repo/server/src/selfMaintenanceTasks.ts:4: * Scans the repo for real improvement signals (TODO/FIXME comments, untested',
+        '/repo',
+      ),
+    ).toBeNull();
+    expect(
+      parseTodoSignalLine(
+        "/repo/server/src/selfMaintenanceTasks.ts:123:    'SELF_MAINTENANCE: Resolve a TODO/FIXME comment in the pixel-agents codebase.',",
+        '/repo',
+      ),
+    ).toBeNull();
+  });
+});
 
 describe('generateSelfMaintenanceTasks', () => {
   it('returns todo tasks from injected signals', () => {

@@ -245,6 +245,15 @@ export function handleClientMessage(
       break;
     }
 
+    case 'searchKnowledge': {
+      const query = typeof msg.query === 'string' ? msg.query.trim() : '';
+      const orchestrator = ctx.orchestratorRef?.current ?? null;
+      if (orchestrator) {
+        send({ type: 'knowledgeUpdated', knowledge: orchestrator.searchNetworkKnowledge(query) });
+      }
+      break;
+    }
+
     case 'agentInterrupt':
       if (typeof msg.id === 'number') ctx.spawnManager?.interrupt(msg.id);
       break;
@@ -368,6 +377,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
       facilityLayout: true,
     });
     const progress = orchestrator.getFacilityProgress();
+    const network = orchestrator.getNetworkSnapshot();
     send({
       type: 'facilityProgress',
       builtRooms: progress.builtRooms,
@@ -379,6 +389,9 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
       missionBoard: progress.missionBoard,
       society: progress.society,
     });
+    send({ type: 'libraryUpdated', books: network.books });
+    send({ type: 'agentMailSnapshot', mail: network.mail });
+    send({ type: 'knowledgeUpdated', knowledge: network.knowledge });
   } else {
     const savedLayout = readLayoutFromFile();
     send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });

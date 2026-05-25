@@ -523,11 +523,11 @@ function renderBubbles(
     const headY = offsetY + (anchorY - BUBBLE_VERTICAL_OFFSET_PX) * zoom;
 
     if (ch.bubbleType === 'chat' && ch.bubbleText) {
-      const fontSize = Math.max(8, Math.round(7 * zoom));
+      const fontSize = Math.min(13, Math.max(8, Math.round(4.5 * zoom)));
       ctx.save();
       ctx.font = `${fontSize}px monospace`;
-      const pad = 4 * zoom;
-      const maxW = 120 * zoom;
+      const pad = Math.min(8, Math.max(4, 2 * zoom));
+      const maxW = Math.min(150, Math.max(90, 76 * zoom));
       const lines = wrapChatLines(ch.bubbleText, maxW, ctx);
       const lineH = fontSize + 2;
       const boxH = lines.length * lineH + pad * 2;
@@ -544,7 +544,7 @@ function renderBubbles(
       ctx.globalAlpha = alpha;
       ctx.fillStyle = CHAT_BUBBLE_BG_COLOR;
       ctx.strokeStyle = CHAT_BUBBLE_BORDER_COLOR;
-      ctx.lineWidth = Math.max(1, zoom);
+      ctx.lineWidth = 1;
       ctx.fillRect(boxX, boxY, boxW, boxH);
       ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
       ctx.fillStyle = CHAT_BUBBLE_TEXT_COLOR;

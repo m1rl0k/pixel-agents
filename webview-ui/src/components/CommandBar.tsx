@@ -90,7 +90,7 @@ export function CommandBar({ facilityProgress, agentCount, providers }: CommandB
 
   return (
     <div
-      className="absolute left-0 right-0 z-30 flex items-center gap-10 select-none"
+      className="facility-command-bar absolute left-0 right-0 z-30 flex items-center gap-10 select-none"
       style={{
         top: 0,
         height: BAR_H,

@@ -53,6 +53,11 @@ export interface SwarmInputMessage {
   text: string;
 }
 
+export interface SearchKnowledgeMessage {
+  type: 'searchKnowledge';
+  query: string;
+}
+
 export interface AgentInterruptMessage {
   type: 'agentInterrupt';
   id: number;
@@ -86,6 +91,7 @@ export type InteractionClientMessage =
   | SpawnAgentMessage
   | AgentInputMessage
   | SwarmInputMessage
+  | SearchKnowledgeMessage
   | AgentInterruptMessage
   | StopSpawnedAgentMessage
   | PermissionReplyMessage
@@ -129,6 +135,18 @@ export interface AgentMailItem {
   /** One-line subject. */
   subject: string;
   /** Markdown body. */
+  body: string;
+  /** Unix ms timestamp. */
+  ts: number;
+}
+
+/** A compact knowledge fact saved by an agent. */
+export interface AgentKnowledgeItem {
+  /** Unique knowledge id. */
+  id: string;
+  /** Display name of the authoring agent. */
+  author: string;
+  /** Fact body. */
   body: string;
   /** Unix ms timestamp. */
   ts: number;

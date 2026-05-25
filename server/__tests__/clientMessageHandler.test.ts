@@ -174,4 +174,85 @@ describe('handleClientMessage', () => {
 
     expect(handleUserGoal).not.toHaveBeenCalled();
   });
+
+  it('webviewReady sends agent network snapshots when the facility is active', () => {
+    const store = new AgentStateStore();
+    const { messages, send } = captureSend();
+    const orchestratorRef = {
+      current: {
+        getLayout: () => ({ cols: 1, rows: 1, tiles: [], furniture: [] }),
+        getFacilityProgress: () => ({
+          builtRooms: 1,
+          totalRooms: 1,
+          phase: 'operating',
+          homeSteps: 1,
+          totalHomeSteps: 1,
+          sharedGoals: [],
+          missionBoard: [],
+          society: {
+            name: 'Pixel Agents Cooperative',
+            charter: [],
+            roles: [],
+            commons: [],
+            rituals: [],
+          },
+        }),
+        getNetworkSnapshot: () => ({
+          mail: [{ id: 'm1', from: 'Room 1', to: 'all', subject: 'hi', body: 'body', ts: 1 }],
+          books: [
+            {
+              id: 'b1',
+              author: 'Room 1',
+              title: 'Notes',
+              tags: ['network'],
+              content: 'content',
+              ts: 1,
+            },
+          ],
+          knowledge: [{ id: 'k1', author: 'Room 1', body: 'fact', ts: 1 }],
+        }),
+      } as never,
+    };
+
+    handleClientMessage({ type: 'webviewReady' }, send, {
+      store,
+      cache: null,
+      orchestratorRef,
+    });
+
+    expect(messages.find((m) => m.type === 'libraryUpdated')).toMatchObject({
+      books: [{ id: 'b1' }],
+    });
+    expect(messages.find((m) => m.type === 'agentMailSnapshot')).toMatchObject({
+      mail: [{ id: 'm1' }],
+    });
+    expect(messages.find((m) => m.type === 'knowledgeUpdated')).toMatchObject({
+      knowledge: [{ id: 'k1' }],
+    });
+  });
+
+  it('searchKnowledge returns filtered facility knowledge', () => {
+    const store = new AgentStateStore();
+    const { messages, send } = captureSend();
+    const searchNetworkKnowledge = vi.fn(() => [
+      { id: 'k1', author: 'Room 1', body: 'pathing fact', ts: 1 },
+    ]);
+    const orchestratorRef = {
+      current: { searchNetworkKnowledge } as never,
+    };
+
+    handleClientMessage({ type: 'searchKnowledge', query: ' pathing ' }, send, {
+      store,
+      cache: null,
+      orchestratorRef,
+    });
+
+    expect(searchNetworkKnowledge).toHaveBeenCalledWith('pathing');
+    expect(messages).toEqual([
+      {
+        type: 'knowledgeUpdated',
+        knowledge: [{ id: 'k1', author: 'Room 1', body: 'pathing fact', ts: 1 }],
+      },
+    ]);
+  });
 });

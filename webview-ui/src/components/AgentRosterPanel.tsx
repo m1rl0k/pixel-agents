@@ -67,7 +67,7 @@ export function AgentRosterPanel({
 }: AgentRosterPanelProps) {
   return (
     <div
-      className="absolute left-10 z-20 pixel-panel flex flex-col overflow-hidden"
+      className="agent-roster-panel absolute z-20 pixel-panel flex flex-col overflow-hidden"
       style={{ bottom: 68, width: 292, maxHeight: 420 }}
     >
       {/* Header */}

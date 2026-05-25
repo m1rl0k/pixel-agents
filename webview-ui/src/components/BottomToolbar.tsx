@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { MISSIONS_LABEL, MISSIONS_TITLE, ROSTER_LABEL, ROSTER_TITLE } from '../constants.js';
+import {
+  LIBRARY_PANEL_LABEL,
+  LIBRARY_PANEL_TITLE,
+  MISSIONS_LABEL,
+  MISSIONS_TITLE,
+  ROSTER_LABEL,
+  ROSTER_TITLE,
+} from '../constants.js';
 import type { ProviderInfo, SandboxTier } from '../interaction/messages.js';
 import { sendClient } from '../interaction/messages.js';
 import { SpawnMenu } from './SpawnMenu.js';
@@ -15,6 +22,10 @@ interface BottomToolbarProps {
   onToggleRoster: () => void;
   isMissionsOpen: boolean;
   onToggleMissions: () => void;
+  isLibraryOpen: boolean;
+  onToggleLibrary: () => void;
+  /** Total books + mail count badge. */
+  libraryCount?: number;
   agentCount: number;
   providers: ProviderInfo[];
 }
@@ -28,6 +39,9 @@ export function BottomToolbar({
   onToggleRoster,
   isMissionsOpen,
   onToggleMissions,
+  isLibraryOpen,
+  onToggleLibrary,
+  libraryCount,
   agentCount,
   providers,
 }: BottomToolbarProps) {
@@ -52,9 +66,11 @@ export function BottomToolbar({
   };
 
   return (
-    <div className="absolute bottom-10 left-10 z-40 flex items-center gap-4 pixel-panel p-4">
+    <div className="bottom-toolbar absolute z-40 flex items-center gap-4 pixel-panel p-4">
       <Button
         variant={isEditMode ? 'active' : 'default'}
+        size="md"
+        className="bottom-toolbar-button"
         onClick={onToggleEditMode}
         title="Edit office layout"
       >
@@ -62,6 +78,8 @@ export function BottomToolbar({
       </Button>
       <Button
         variant={isSettingsOpen ? 'active' : 'default'}
+        size="md"
+        className="bottom-toolbar-button"
         onClick={onToggleSettings}
         title="Settings"
       >
@@ -70,6 +88,8 @@ export function BottomToolbar({
       <div className="relative">
         <Button
           variant={isRosterOpen ? 'active' : 'default'}
+          size="md"
+          className="bottom-toolbar-button"
           onClick={onToggleRoster}
           title={ROSTER_TITLE}
         >
@@ -86,10 +106,29 @@ export function BottomToolbar({
       </div>
       <Button
         variant={isMissionsOpen ? 'active' : 'default'}
+        size="md"
+        className="bottom-toolbar-button"
         onClick={onToggleMissions}
         title={MISSIONS_TITLE}
       >
         {MISSIONS_LABEL}
+      </Button>
+      <Button
+        variant={isLibraryOpen ? 'active' : 'default'}
+        size="md"
+        className="bottom-toolbar-button"
+        onClick={onToggleLibrary}
+        title={LIBRARY_PANEL_TITLE}
+      >
+        {LIBRARY_PANEL_LABEL}
+        {libraryCount !== undefined && libraryCount > 0 && (
+          <span
+            className="ml-4 text-2xs leading-none"
+            style={{ color: 'var(--color-facility-amber)' }}
+          >
+            {libraryCount}
+          </span>
+        )}
       </Button>
       {providers.length > 0 && (
         <div ref={spawnMenuRef}>
@@ -98,6 +137,7 @@ export function BottomToolbar({
             providers={providers}
             onToggle={() => setIsSpawnMenuOpen((v) => !v)}
             onSpawn={handleSpawn}
+            triggerClassName="bottom-toolbar-button"
           />
         </div>
       )}

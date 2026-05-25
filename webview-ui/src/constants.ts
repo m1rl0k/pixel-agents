@@ -268,12 +268,16 @@ export const LIBRARY_PANEL_WIDTH_PX = 380;
 export const LIBRARY_TAB_BOOKS = 'Books';
 /** Tab label — mail view. */
 export const LIBRARY_TAB_MAIL = 'Mail';
+/** Tab label — knowledge facts view. */
+export const LIBRARY_TAB_KNOWLEDGE = 'Knowledge';
 /** Placeholder text for the book search input. */
 export const LIBRARY_SEARCH_PLACEHOLDER = 'Search books…';
 /** Empty state shown when no books exist. */
 export const LIBRARY_EMPTY = 'No books written yet.';
 /** Empty state shown when no mail exists. */
 export const LIBRARY_MAIL_EMPTY = 'No messages yet.';
+/** Empty state shown when no knowledge facts exist. */
+export const LIBRARY_KNOWLEDGE_EMPTY = 'No shared facts yet.';
 /** Back button label in the book reader. */
 export const LIBRARY_BOOK_BACK_LABEL = '← Back';
 /** Max mail items retained in the webview feed. */

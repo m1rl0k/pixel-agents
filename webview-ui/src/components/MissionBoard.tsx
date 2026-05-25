@@ -60,7 +60,7 @@ export function MissionBoard({
 
   return (
     <div
-      className="absolute z-20 pixel-panel flex flex-col overflow-hidden"
+      className="mission-board-panel absolute z-20 pixel-panel flex flex-col overflow-hidden"
       style={{
         bottom: MISSION_BOARD_BOTTOM_PX,
         left: MISSION_BOARD_LEFT_PX,

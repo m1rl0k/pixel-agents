@@ -101,7 +101,7 @@ export function AgentPanel({
 
   return (
     <div
-      className="absolute top-10 right-10 bottom-10 z-30 flex flex-col pixel-panel"
+      className="agent-panel absolute z-30 flex flex-col pixel-panel"
       style={{ width: AGENT_PANEL_WIDTH_PX }}
     >
       <div className="flex items-center justify-between py-4 px-10 border-b border-border gap-8 shrink-0">

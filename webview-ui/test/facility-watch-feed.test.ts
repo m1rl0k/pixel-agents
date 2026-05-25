@@ -106,6 +106,14 @@ test('App passes shared goals into the facility signal deck', () => {
   assert.match(appSource, /<FacilityWatchFeed[\s\S]*society=\{facilityProgress\.society\}/);
 });
 
+test('App passes network state into the LibraryMailPanel', () => {
+  const appSource = readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
+
+  assert.match(appSource, /<LibraryMailPanel[\s\S]*books=\{agentBooks\}/);
+  assert.match(appSource, /<LibraryMailPanel[\s\S]*mail=\{agentMail\}/);
+  assert.match(appSource, /<LibraryMailPanel[\s\S]*knowledge=\{agentKnowledge\}/);
+});
+
 test('useExtensionMessages suppresses waiting sounds during facility social mode', () => {
   const hookSource = readFileSync(path.join(root, 'src/hooks/useExtensionMessages.ts'), 'utf8');
 

@@ -134,7 +134,7 @@ export class FacilityStateStore {
   /** reducer: expand_room */
   expandRoom(roomIndex: number): void {
     this.record('expand_room', { roomIndex });
-    this.builtRooms = roomIndex + 1;
+    this.builtRooms = normalizeCounter(roomIndex + 1, this.totalRooms);
     trySpacetimeReducer('expand_room', [String(roomIndex)]);
     this.save();
   }
@@ -150,7 +150,7 @@ export class FacilityStateStore {
   /** reducer: expand_home_step */
   expandHomeStep(stepIndex: number): void {
     this.record('expand_home_step', { stepIndex });
-    this.homeSteps = stepIndex + 1;
+    this.homeSteps = normalizeCounter(stepIndex + 1);
     trySpacetimeReducer('expand_home_step', [String(stepIndex)]);
     this.save();
   }

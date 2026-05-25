@@ -144,10 +144,10 @@
   }
 
   .facility-watch-feed {
-    top: clamp(96px, 14vh, 144px);
-    left: clamp(12px, 2.5vw, 40px);
-    width: min(320px, calc(100vw - 32px));
-    max-height: min(520px, calc(100vh - 210px));
+    top: 60px;
+    left: 56px;
+    width: min(300px, calc(100vw - 112px));
+    max-height: min(520px, calc(100vh - 170px));
   }
 
   .facility-feed-panel,
@@ -242,9 +242,60 @@
     font-size: 11px;
   }
 
+  .facility-watch-feed .text-xs,
+  .facility-watch-feed .text-sm,
+  .facility-watch-feed .text-2xs {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .facility-watch-feed .facility-feed-header {
+    padding: 8px 10px;
+  }
+
+  .facility-watch-feed .facility-feed-goals {
+    padding: 8px 10px;
+  }
+
+  .facility-watch-feed .facility-feed-item {
+    padding: 8px 10px;
+  }
+
+  .facility-command-bar {
+    min-width: 0;
+  }
+
+  .facility-command-bar .relative > button {
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .bottom-toolbar {
+    left: 10px;
+    bottom: 10px;
+    max-width: min(420px, calc(100vw - 20px));
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-accent-bright) var(--color-bg-dark);
+  }
+
+  .bottom-toolbar-button {
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .bottom-toolbar .text-2xs {
+    font-size: 10px;
+  }
+
   .swarm-command-shell {
     bottom: 28px;
-    width: min(620px, calc(100vw - 48px));
+    width: min(520px, calc(100vw - 500px));
     transform: translateX(-50%);
   }
 
@@ -294,6 +345,107 @@
 
   .swarm-command-input::placeholder {
     color: var(--color-text-muted);
+  }
+
+  .agent-panel {
+    top: 58px;
+    right: 12px;
+    bottom: 76px;
+    width: min(380px, calc(100vw - 24px)) !important;
+    background: rgba(24, 24, 40, 0.98);
+  }
+
+  .agent-panel .text-lg {
+    font-size: 17px;
+  }
+
+  .agent-panel .text-sm,
+  .agent-panel .text-xs,
+  .agent-panel .text-2xs {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .agent-panel .rpg-bubble {
+    max-width: 100%;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-panel .rpg-reasoning,
+  .agent-panel .rpg-tool-line,
+  .library-mail-panel .rpg-tool-line {
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .agent-map-badge {
+    max-width: 180px;
+    padding: 4px 7px 6px;
+    background: rgba(20, 18, 40, 0.88);
+  }
+
+  .agent-map-badge[data-passive='true'] {
+    max-width: 56px;
+    padding: 3px 5px 4px;
+    border-color: rgba(116, 111, 255, 0.48);
+    box-shadow:
+      1px 1px 0 #0a0a14,
+      inset 0 0 0 1px rgba(70, 217, 255, 0.12);
+  }
+
+  .agent-map-badge[data-passive='true'] .w-6 {
+    width: 4px;
+    height: 4px;
+  }
+
+  .library-mail-panel {
+    top: 58px;
+    left: 12px;
+    bottom: 76px;
+    width: min(380px, calc(100vw - 24px)) !important;
+    background: rgba(24, 24, 40, 0.98);
+  }
+
+  .library-mail-panel .text-lg {
+    font-size: 17px;
+  }
+
+  .library-mail-panel .text-sm,
+  .library-mail-panel .text-xs,
+  .library-mail-panel .text-2xs {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .agent-roster-panel {
+    left: 10px !important;
+    bottom: 60px !important;
+    width: 300px !important;
+    max-height: min(420px, calc(100vh - 132px)) !important;
+    background: rgba(24, 24, 40, 0.98);
+  }
+
+  .mission-board-panel {
+    left: 318px !important;
+    bottom: 60px !important;
+    width: 330px !important;
+    max-height: min(460px, calc(100vh - 132px)) !important;
+    background: rgba(24, 24, 40, 0.98);
+  }
+
+  .agent-roster-panel .text-sm,
+  .agent-roster-panel .text-xs,
+  .agent-roster-panel .text-2xs,
+  .mission-board-panel .text-sm,
+  .mission-board-panel .text-xs,
+  .mission-board-panel .text-2xs {
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   /* ── RPG Dialogue Bubbles (AgentActivityFeed) ───────────────── */
@@ -360,20 +512,52 @@
 }
 
 @media (max-width: 760px) {
+  .facility-command-bar {
+    overflow-x: auto;
+    gap: 6px;
+  }
+
+  .facility-command-bar > div:first-child {
+    gap: 6px;
+  }
+
+  .facility-command-bar span {
+    font-size: 9px !important;
+  }
+
+  .facility-command-bar > div:nth-of-type(2),
+  .facility-command-bar > div:nth-of-type(3),
+  .facility-command-bar > div:nth-of-type(4) {
+    display: none !important;
+  }
+
+  .facility-command-bar > div:first-child {
+    min-width: max-content;
+  }
+
   .facility-watch-feed {
-    top: 72px;
-    width: min(300px, calc(100vw - 24px));
-    max-height: 34vh;
+    top: 58px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    max-height: 30vh;
   }
 
   .swarm-command-shell {
     /* Push above BottomToolbar (~50px) so controls remain reachable */
-    bottom: 65px;
-    width: calc(100vw - 24px);
+    bottom: 64px;
+    width: calc(100vw - 16px);
   }
 
   .swarm-command-panel {
     @apply px-6 py-5;
+  }
+
+  .swarm-command-header {
+    padding-bottom: 4px;
+  }
+
+  .swarm-command-quickbar {
+    display: none;
   }
 
   .swarm-command-header,
@@ -383,6 +567,48 @@
 
   .swarm-command-entry {
     @apply flex-col;
+  }
+
+  .bottom-toolbar {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: none;
+    border-left: 0;
+    border-right: 0;
+    padding: 6px;
+  }
+
+  .bottom-toolbar-button {
+    min-height: 42px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .agent-panel,
+  .library-mail-panel {
+    top: 56px;
+    left: 8px;
+    right: 8px;
+    bottom: 64px;
+    width: auto !important;
+  }
+
+  .agent-panel .p-10 {
+    padding: 8px;
+  }
+
+  .agent-panel input {
+    font-size: 12px;
+  }
+
+  .agent-roster-panel,
+  .mission-board-panel {
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 64px !important;
+    width: auto !important;
+    max-height: 52vh !important;
   }
 }
 

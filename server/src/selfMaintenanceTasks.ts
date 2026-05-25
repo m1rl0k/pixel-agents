@@ -37,11 +37,31 @@ export const SELF_MAINTAIN_OK_MARKER = 'SELF_MAINTAIN_OK:';
 /** Marker the worker emits in its report when the change was reverted. */
 export const SELF_MAINTAIN_FAIL_MARKER = 'SELF_MAINTAIN_FAIL:';
 
-interface TodoSignal {
+export interface TodoSignal {
   file: string;
   line: string;
   kind: string;
   comment: string;
+}
+
+const TODO_SIGNAL_COMMENT_PATTERN =
+  /(?:\/\/+|\/\*+|\*)\s*(TODO|FIXME|HACK)\b(?:\s*[:—-]\s*|\s+)(.{4,100})/;
+
+export function parseTodoSignalLine(line: string, repoRoot: string): TodoSignal | null {
+  const match = line.match(/^(.+?):(\d+):(.*)$/);
+  if (!match) return null;
+
+  const [, file, lineNum, content] = match;
+  const marker = content.match(TODO_SIGNAL_COMMENT_PATTERN);
+  if (!marker) return null;
+
+  const [, kind, comment] = marker;
+  return {
+    file: file.replace(repoRoot + '/', ''),
+    line: lineNum,
+    kind,
+    comment: comment.replace(/\s*\*\/\s*$/, '').trim(),
+  };
 }
 
 /** Scan the repo for TODO/FIXME signals via grep. Returns up to `limit` hits. */
@@ -53,10 +73,11 @@ export function scanTodoSignals(repoRoot: string, limit = 6): TodoSignal[] {
     const raw = execFileSync(
       'grep',
       [
+        '-E',
         '-rn',
         '--include=*.ts',
         '--include=*.tsx',
-        'TODO\\|FIXME\\|HACK',
+        'TODO|FIXME|HACK',
         join(repoRoot, 'server/src'),
         join(repoRoot, 'core/src'),
         join(repoRoot, 'webview-ui/src'),
@@ -69,15 +90,8 @@ export function scanTodoSignals(repoRoot: string, limit = 6): TodoSignal[] {
       .slice(0, 30);
     for (const line of lines) {
       if (signals.length >= limit) break;
-      const match = line.match(/^(.+?):(\d+):.*?(TODO|FIXME|HACK)[:\s]+(.{4,100})/);
-      if (!match) continue;
-      const [, file, lineNum, kind, comment] = match;
-      signals.push({
-        file: file.replace(repoRoot + '/', ''),
-        line: lineNum,
-        kind,
-        comment: comment.trim(),
-      });
+      const signal = parseTodoSignalLine(line, repoRoot);
+      if (signal) signals.push(signal);
     }
   } catch {
     // grep unavailable, timed out, or no matches (exit 1) — return empty
@@ -128,8 +142,17 @@ function buildTodoPrompt(signal: TodoSignal, repoRoot: string): string {
     '1. Read the file and understand the context around the marked line.',
     '2. Implement the minimal fix or improvement the comment describes.',
     '3. Run `npm run build` from the repo root (' + repoRoot + ') to verify the build stays green.',
-    '4. If build is green, report exactly: ' + SELF_MAINTAIN_OK_MARKER + ' resolved ' + signal.kind + ' in ' + signal.file + ':' + signal.line,
-    '5. If build fails, revert your change and report exactly: ' + SELF_MAINTAIN_FAIL_MARKER + ' <reason>',
+    '4. If build is green, report exactly: ' +
+      SELF_MAINTAIN_OK_MARKER +
+      ' resolved ' +
+      signal.kind +
+      ' in ' +
+      signal.file +
+      ':' +
+      signal.line,
+    '5. If build fails, revert your change and report exactly: ' +
+      SELF_MAINTAIN_FAIL_MARKER +
+      ' <reason>',
     '',
     'CRITICAL SAFETY RULES:',
     '- Do NOT modify .env files, secrets, database configs, or any destructive operations.',
@@ -150,7 +173,10 @@ function buildTestPrompt(moduleName: string, repoRoot: string): string {
     '2. Create ' + testFile + ' using Vitest (import from "vitest").',
     '3. Write 2–4 focused unit tests: at least one happy path and one edge case.',
     '4. Run `npm run test:server` from the repo root (' + repoRoot + ') to verify tests pass.',
-    '5. If tests pass, report exactly: ' + SELF_MAINTAIN_OK_MARKER + ' added tests for ' + moduleName,
+    '5. If tests pass, report exactly: ' +
+      SELF_MAINTAIN_OK_MARKER +
+      ' added tests for ' +
+      moduleName,
     '6. If tests fail, report exactly: ' + SELF_MAINTAIN_FAIL_MARKER + ' <reason>',
     '',
     'CRITICAL SAFETY RULES:',
@@ -176,7 +202,9 @@ function buildContinuousPrompt(
     '3. Prefer a small code/UI/world-building improvement over a broad rewrite.',
     '4. Run `npm run build` and `npm test` from the repo root (' + repoRoot + ') after changes.',
     '5. If both pass, report exactly: ' + SELF_MAINTAIN_OK_MARKER + ' ' + title,
-    '6. If either fails, revert your change and report exactly: ' + SELF_MAINTAIN_FAIL_MARKER + ' <reason>',
+    '6. If either fails, revert your change and report exactly: ' +
+      SELF_MAINTAIN_FAIL_MARKER +
+      ' <reason>',
     '',
     'CRITICAL SAFETY RULES:',
     '- Do NOT modify .env files, secrets, database configs, or destructive DB operations.',
@@ -246,7 +274,7 @@ function continuousMaintenanceTasks(repoRoot: string): SelfMaintenanceTask[] {
  * Generate a bounded list of concrete self-maintenance tasks from real repo signals.
  *
  * @param repoRoot  Absolute path to the pixel-agents repo root.
- * @param todoSignals  Pre-scanned TODO signals (injectable for tests).
+ * @param todoSignals  Pre-scanned maintenance signals (injectable for tests).
  * @param untestedModules  Pre-scanned untested module names (injectable for tests).
  */
 export function generateSelfMaintenanceTasks(

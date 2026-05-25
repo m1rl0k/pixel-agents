@@ -18,18 +18,27 @@ interface SpawnMenuProps {
   providers: ProviderInfo[];
   onToggle: () => void;
   onSpawn: (providerId: string, sandboxTier: SandboxTier) => void;
+  triggerClassName?: string;
 }
 
 /** Deploy menu: orchestrator assigns a worker agent + optional sandbox restraints. */
-export function SpawnMenu({ isOpen, providers, onToggle, onSpawn }: SpawnMenuProps) {
+export function SpawnMenu({
+  isOpen,
+  providers,
+  onToggle,
+  onSpawn,
+  triggerClassName = '',
+}: SpawnMenuProps) {
   const [sandboxTier, setSandboxTier] = useState<SandboxTier>(SANDBOX_TIER_NONE);
 
   return (
     <div className="relative">
       <Button
         variant={isOpen ? 'active' : 'default'}
+        size="md"
         onClick={onToggle}
         title={SPAWN_WORKER_TITLE}
+        className={triggerClassName}
       >
         {SPAWN_WORKER_BUTTON}
       </Button>

@@ -105,6 +105,12 @@ components:
         - $ref: '#/components/schemas/FacilityBuild'
         - $ref: '#/components/schemas/FacilityWorldEdit'
         - $ref: '#/components/schemas/FacilityChat'
+        # Agent network (mail + library)
+        - $ref: '#/components/schemas/AgentMail'
+        - $ref: '#/components/schemas/AgentMailSnapshot'
+        - $ref: '#/components/schemas/BookWritten'
+        - $ref: '#/components/schemas/LibraryUpdated'
+        - $ref: '#/components/schemas/KnowledgeUpdated'
         # Assets
         - $ref: '#/components/schemas/FurnitureAssetsLoaded'
         - $ref: '#/components/schemas/CharacterSpritesLoaded'
@@ -143,6 +149,7 @@ components:
         - $ref: '#/components/schemas/SpawnAgent'
         - $ref: '#/components/schemas/AgentInput'
         - $ref: '#/components/schemas/SwarmInput'
+        - $ref: '#/components/schemas/SearchKnowledge'
         - $ref: '#/components/schemas/AgentInterrupt'
         - $ref: '#/components/schemas/StopSpawnedAgent'
         - $ref: '#/components/schemas/PermissionReply'
@@ -644,6 +651,70 @@ components:
         text:
           type: string
 
+    AgentMail:
+      description: |
+        Broadcast when one agent sends mail to another inside the facility.
+      type: object
+      additionalProperties: false
+      required: [type, mail]
+      properties:
+        type:
+          const: agentMail
+        mail:
+          $ref: '#/components/schemas/AgentNetworkMail'
+
+    AgentMailSnapshot:
+      description: Full recent in-world mail feed for reconnecting webviews.
+      type: object
+      additionalProperties: false
+      required: [type, mail]
+      properties:
+        type:
+          const: agentMailSnapshot
+        mail:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentNetworkMail'
+
+    BookWritten:
+      description: |
+        Broadcast when an agent writes a book to the shared library.
+      type: object
+      additionalProperties: false
+      required: [type, book]
+      properties:
+        type:
+          const: bookWritten
+        book:
+          $ref: '#/components/schemas/AgentNetworkBook'
+
+    LibraryUpdated:
+      description: |
+        Full shared-library snapshot for reconnects or after a book changes.
+      type: object
+      additionalProperties: false
+      required: [type, books]
+      properties:
+        type:
+          const: libraryUpdated
+        books:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentNetworkBook'
+
+    KnowledgeUpdated:
+      description: Shared knowledge facts, optionally filtered by a search query.
+      type: object
+      additionalProperties: false
+      required: [type, knowledge]
+      properties:
+        type:
+          const: knowledgeUpdated
+        knowledge:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentNetworkKnowledge'
+
     FurnitureAssetsLoaded:
       description: Furniture catalog and sprite data, sent once after webviewReady.
       type: object
@@ -1022,6 +1093,17 @@ components:
         text:
           type: string
 
+    SearchKnowledge:
+      description: Search the in-world shared knowledge index.
+      type: object
+      additionalProperties: false
+      required: [type, query]
+      properties:
+        type:
+          const: searchKnowledge
+        query:
+          type: string
+
     AgentInterrupt:
       description: SIGINT an owned agent process.
       type: object
@@ -1062,6 +1144,61 @@ components:
           type: boolean
 
     # ── Supporting schemas ─────────────────────────────────────────
+
+    AgentNetworkMail:
+      description: One in-world mail message.
+      type: object
+      additionalProperties: false
+      required: [id, from, to, subject, body, ts]
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        ts:
+          type: integer
+
+    AgentNetworkBook:
+      description: One agent-authored shared-library book.
+      type: object
+      additionalProperties: false
+      required: [id, author, title, tags, content, ts]
+      properties:
+        id:
+          type: string
+        author:
+          type: string
+        title:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+        ts:
+          type: integer
+
+    AgentNetworkKnowledge:
+      description: One compact reusable fact shared by an agent.
+      type: object
+      additionalProperties: false
+      required: [id, author, body, ts]
+      properties:
+        id:
+          type: string
+        author:
+          type: string
+        body:
+          type: string
+        ts:
+          type: integer
 
     AgentSeatMeta:
       description: |

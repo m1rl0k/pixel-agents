@@ -44,6 +44,11 @@ describe('AgentNetworkStore', () => {
       tags: ['world', 'build'],
     });
     expect(store.searchKnowledge('pathing', 5)[0]?.body).toContain('pathing contract');
+    expect(store.listMail(5)[0]).toMatchObject({
+      from: 'Room 1',
+      to: 'Room 2',
+      subject: 'door clear',
+    });
   });
 
   it('adds recent network context to prompts', () => {

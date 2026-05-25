@@ -41,6 +41,11 @@ export type NetworkCapture =
   | { kind: 'book'; book: AgentBook }
   | { kind: 'knowledge'; knowledge: AgentKnowledge };
 
+type AgentNetworkTimelineRow =
+  | ({ kind: 'mail' } & AgentMail)
+  | ({ kind: 'book' } & AgentBook)
+  | ({ kind: 'knowledge' } & AgentKnowledge);
+
 export class AgentNetworkStore {
   private readonly dir: string;
 
@@ -176,6 +181,27 @@ export class AgentNetworkStore {
     return rows
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, normalizeLimit(limit));
+  }
+
+  listMail(limit = 100): AgentMail[] {
+    const seen = new Set<string>();
+    const rows = this.readJsonl<AgentNetworkTimelineRow>(path.join(this.dir, 'timeline.jsonl'));
+    const mail: AgentMail[] = [];
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const row = rows[i];
+      if (row.kind !== 'mail' || seen.has(row.id)) continue;
+      seen.add(row.id);
+      mail.push({
+        id: row.id,
+        from: row.from,
+        to: row.to,
+        subject: row.subject,
+        body: row.body,
+        createdAt: row.createdAt,
+      });
+      if (mail.length >= normalizeLimit(limit)) break;
+    }
+    return mail;
   }
 
   writeBook(input: {

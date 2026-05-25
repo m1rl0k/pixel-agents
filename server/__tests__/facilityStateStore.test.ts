@@ -93,4 +93,35 @@ describe('FacilityStateStore', () => {
       tasksDispatched: 4,
     });
   });
+
+  it('clamps live room expansion to the configured room capacity', () => {
+    const store = storeUsingPath(statePath);
+
+    store.expandRoom(999);
+
+    expect(store.getSnapshot()).toMatchObject({
+      builtRooms: 10,
+      totalRooms: 10,
+    });
+  });
+
+  it('normalizes invalid live room indexes to zero built rooms', () => {
+    const store = storeUsingPath(statePath);
+
+    store.expandRoom(-2);
+    expect(store.getSnapshot().builtRooms).toBe(0);
+
+    store.expandRoom(1.5);
+    expect(store.getSnapshot().builtRooms).toBe(0);
+  });
+
+  it('normalizes invalid live home step indexes to zero home steps', () => {
+    const store = storeUsingPath(statePath);
+
+    store.expandHomeStep(-2);
+    expect(store.getSnapshot().homeSteps).toBe(0);
+
+    store.expandHomeStep(1.5);
+    expect(store.getSnapshot().homeSteps).toBe(0);
+  });
 });

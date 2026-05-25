@@ -124,6 +124,7 @@ export function ToolOverlay({
 
         // Only show for hovered or selected agents (unless always-show is on)
         if (!alwaysShowOverlay && !isSelected && !isHovered) return null;
+        const isPassiveAlways = alwaysShowOverlay && !isSelected && !isHovered;
 
         // Position above character
         const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
@@ -144,12 +145,19 @@ export function ToolOverlay({
         } else {
           activityText = getActivityText(id, agentTools, ch.isActive);
         }
-
         // Determine dot color
         const tools = agentTools[id];
         const hasPermission = subHasPermission || tools?.some((t) => t.permissionWait && !t.done);
         const hasActiveTools = tools?.some((t) => !t.done);
         const isActive = ch.isActive;
+        if (isPassiveAlways && !hasPermission && !hasActiveTools && !isActive) return null;
+        const passiveText =
+          ch.folderName?.replace(/^Worker #/i, 'W') ?? (hasPermission ? 'Approval' : 'Active');
+        const displayActivityText = isPassiveAlways
+          ? passiveText.length > 12
+            ? `${passiveText.slice(0, 11)}…`
+            : passiveText
+          : activityText;
 
         let dotColor: string | null = null;
         if (hasPermission) {
@@ -178,13 +186,16 @@ export function ToolOverlay({
             className="absolute flex flex-col items-center -translate-x-1/2"
             style={{
               left: screenX,
-              top: screenY - (hasExtraLines ? 34 : 28),
+              top: screenY - (isPassiveAlways ? 24 : hasExtraLines ? 34 : 28),
               pointerEvents: isSelected ? 'auto' : 'none',
-              opacity: alwaysShowOverlay && !isSelected && !isHovered ? (isSub ? 0.5 : 0.75) : 1,
+              opacity: isPassiveAlways ? (isSub ? 0.42 : 0.68) : 1,
               zIndex: isSelected ? 42 : 41,
             }}
           >
-            <div className="flex items-center border-border px-8 pt-2 pb-4 gap-5 pixel-panel whitespace-nowrap max-w-2xs">
+            <div
+              className="agent-map-badge flex items-center border-border gap-5 pixel-panel whitespace-nowrap"
+              data-passive={isPassiveAlways ? 'true' : undefined}
+            >
               {dotColor && (
                 <span
                   className={`w-6 h-6 rounded-full shrink-0 ${isActive && !hasPermission ? 'pixel-pulse' : ''}`}
@@ -196,7 +207,7 @@ export function ToolOverlay({
                   <span
                     className="overflow-hidden text-ellipsis block leading-none"
                     style={{
-                      fontSize: '18px',
+                      fontSize: isPassiveAlways ? '10px' : '18px',
                       color: ch.isTeamLead ? TEAM_LEAD_COLOR : TEAM_ROLE_COLOR,
                       fontWeight: ch.isTeamLead ? 'bold' : undefined,
                     }}
@@ -207,18 +218,18 @@ export function ToolOverlay({
                 <span
                   className="overflow-hidden text-ellipsis block leading-none"
                   style={{
-                    fontSize: isSub ? '20px' : '22px',
+                    fontSize: isPassiveAlways ? '11px' : isSub ? '20px' : '22px',
                     fontStyle: isSub ? 'italic' : undefined,
                   }}
                 >
-                  {activityText}
+                  {displayActivityText}
                 </span>
-                {ch.folderName && (
+                {ch.folderName && !isPassiveAlways && (
                   <span className="text-2xs leading-none overflow-hidden text-ellipsis block">
                     {ch.folderName}
                   </span>
                 )}
-                {providerBadge && (
+                {providerBadge && !isPassiveAlways && (
                   <span
                     className="leading-none overflow-hidden text-ellipsis block"
                     style={{
