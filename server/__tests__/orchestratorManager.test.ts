@@ -483,4 +483,42 @@ describe('OrchestratorManager', () => {
     );
     expect(relayCallsAfter).toHaveLength(2);
   });
+
+  it('defers self-maintain on API-only lanes and dispatches a normal operating task', async () => {
+    process.env.PIXEL_AGENTS_SELF_MAINTAIN = '1';
+    const manager = makeMockManager();
+    manager.getDetails.mockImplementation((id: number) => ({
+      folderName: `Worker #${id}`,
+      sessionId: `worker-session-${id}`,
+      providerId: ZAI_WORKER_PROVIDER_ID,
+    }));
+
+    const { emit } = await runToOperating(1);
+    const emitSpy = emit as ReturnType<typeof vi.fn>;
+
+    manager.sendInput.mockClear();
+    emitSpy.mockClear();
+
+    // Third dispatch tick is a maintenance slot (SELF_MAINTAIN_EVERY_N = 3).
+    for (let i = 0; i < 3; i++) {
+      vi.setSystemTime(Date.now() + dispatchIntervalMs());
+      (orch as unknown as { dispatch: () => void }).dispatch();
+    }
+
+    const maintainPrompts = manager.sendInput.mock.calls.filter((call) =>
+      String(call[1]).includes('[MAINTAIN]'),
+    );
+    const missionPrompts = manager.sendInput.mock.calls.filter((call) =>
+      String(call[1]).includes('SHARED_MISSION:'),
+    );
+
+    expect(maintainPrompts).toHaveLength(0);
+    expect(missionPrompts.length).toBeGreaterThan(0);
+    expect(
+      emitSpy.mock.calls.some(
+        ([msg]) =>
+          msg.type === 'facilityChat' && String(msg.text).includes('Self-maintain deferred'),
+      ),
+    ).toBe(true);
+  });
 });
