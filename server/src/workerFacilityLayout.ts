@@ -28,6 +28,7 @@ import {
   REC_ORIGIN_COL,
   REC_ORIGIN_ROW,
   REC_WING_H,
+  REC_WING_W,
   RIGHT_ORIGIN_COL,
   RIGHT_ORIGIN_ROW,
   RIGHT_WING_H,
@@ -712,3 +713,5 @@ export function buildWorkerFacilityLayout(
 
 /** Seat id for the orchestrator throne. */
 export const ORCHESTRATOR_SEAT_ID = 'orch-chair';
+
+export { HOME_ORIGIN_COL, HOME_ORIGIN_ROW, HOME_WING_W } from './facilityConstants.js';
